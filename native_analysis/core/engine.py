@@ -91,7 +91,7 @@ class ScanEngine:
     def scan_target(
         self,
         target_so_path: str,
-        apk_relative_path: str = "standalone/libnative-lib.so"
+        apk_relative_path: Optional[str] = None
     ) -> Tuple[ParsedBinary, List[Finding]]:
         """
         Parses binary and runs all 15 analyzers against the extracted AST and strings.
@@ -104,6 +104,10 @@ class ScanEngine:
             Tuple of (ParsedBinary AST model, List of Finding objects).
         """
         try:
+            if not apk_relative_path or apk_relative_path == "standalone/libnative-lib.so":
+                file_name = os.path.basename(target_so_path)
+                apk_relative_path = f"standalone/{file_name}"
+
             parsed_binary = self.parser.parse(target_so_path, apk_relative_path=apk_relative_path)
             all_findings: List[Finding] = []
 

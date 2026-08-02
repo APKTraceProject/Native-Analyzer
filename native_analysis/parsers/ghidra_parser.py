@@ -9,7 +9,7 @@ import re
 import tempfile
 import subprocess
 import json
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
 from native_analysis.parsers.base_parser import BaseParser
 from native_analysis.models.parsed_binary import ParsedBinary, DecompiledFunction, BinaryMitigations
 
@@ -73,11 +73,14 @@ class GhidraParser(BaseParser):
             relro=relro_status
         )
 
-    def parse(self, target_so_path: str, apk_relative_path: str = "standalone/libnative-lib.so") -> ParsedBinary:
+    def parse(self, target_so_path: str, apk_relative_path: Optional[str] = None) -> ParsedBinary:
         """
         Executes Ghidra Headless decompilation or triggers cross-platform fallback.
         """
         file_name = os.path.basename(target_so_path)
+        if not apk_relative_path or apk_relative_path == "standalone/libnative-lib.so":
+            apk_relative_path = f"standalone/{file_name}"
+
         sha256_hash = self._compute_sha256(target_so_path)
         
         file_bytes = b""

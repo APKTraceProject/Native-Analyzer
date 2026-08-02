@@ -3,6 +3,7 @@ Abstract Base Class defining the contract for ELF binary parsers.
 """
 
 from abc import ABC, abstractmethod
+from typing import Optional
 from native_analysis.models.parsed_binary import ParsedBinary
 
 class BaseParser(ABC):
@@ -11,7 +12,7 @@ class BaseParser(ABC):
     """
 
     @abstractmethod
-    def parse(self, target_so_path: str, apk_relative_path: str = "standalone/libnative-lib.so") -> ParsedBinary:
+    def parse(self, target_so_path: str, apk_relative_path: Optional[str] = None) -> ParsedBinary:
         """
         Parses binary at specified filesystem path into a ParsedBinary model.
         

@@ -111,15 +111,44 @@ class BaseAnalyzer(ABC):
                         var_name = self._extract_target_variable(line, pattern)
                         line_no = idx + 1
 
-                        loc = Location(
-                            function_name=func.name,
-                            symbol_address=func.address,
-                            line_number=line_no,
-                            is_exported_jni=func.is_exported_jni
+                        # Check if section is a static string / data section or if static string rule
+                        is_string_sec = (
+                            func.name == "global_strings_section" or
+                            func.name.endswith("_section") or
+                            func.name.endswith("_strings") or
+                            target_rule.id in ["DBG-001", "FRD-001", "STR-001"]
                         )
 
-                        source_desc = f"JNI or internal parameter passed to function '{func.name}' at line {max(1, line_no - 5)}"
-                        sink_desc = f"Unsanitized call via pattern '{pattern}' at line {line_no}"
+                        if is_string_sec:
+                            loc = Location(
+                                function_name="N/A (Static Data Section)",
+                                symbol_address="N/A",
+                                line_number=line_no,
+                                is_exported_jni=False
+                            )
+                            source_desc = "Hardcoded static binary string artifact"
+                            sink_desc = f"Unsanitized reference via pattern '{pattern}' at line {line_no}"
+                        else:
+                            loc = Location(
+                                function_name=func.name,
+                                symbol_address=func.address,
+                                line_number=line_no,
+                                is_exported_jni=func.is_exported_jni
+                            )
+
+                            # Search for actual function definition signature line
+                            src_line_no = None
+                            for s_idx, s_line in enumerate(func.code_lines[:idx]):
+                                s_line_clean = s_line.strip()
+                                if func.name in s_line and "(" in s_line and not s_line_clean.startswith("/*"):
+                                    src_line_no = s_idx + 1
+                                    break
+
+                            if src_line_no is None:
+                                src_line_no = max(1, line_no - 1)
+
+                            source_desc = f"JNI or internal parameter passed to function '{func.name}' at line {src_line_no}"
+                            sink_desc = f"Unsanitized call via pattern '{pattern}' at line {line_no}"
 
                         flow = FlowAnalysis(
                             source=source_desc,

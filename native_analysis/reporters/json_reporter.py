@@ -90,9 +90,16 @@ class JSONReporter:
                 if f.location.is_exported_jni:
                     vulnerable_jni_funcs.add(f.location.function_name)
 
-                findings_json.append(f.to_dict())
+                f_dict = f.to_dict()
+                f_dict["target_file"] = binary.apk_relative_path
+                findings_json.append(f_dict)
 
             vulnerable_jni_count = len(vulnerable_jni_funcs)
+
+            real_functions = [
+                f for f in binary.functions
+                if f.name != "global_strings_section" and not f.name.endswith("_section") and not f.name.endswith("_strings")
+            ]
 
             target_entry = {
                 "file_name": binary.file_name,
@@ -105,7 +112,7 @@ class JSONReporter:
                     "by_confidence": file_conf,
                     "by_category": file_cat,
                     "attack_surface_metrics": {
-                        "total_functions_scanned": len(binary.functions),
+                        "total_functions_scanned": len(real_functions),
                         "exported_jni_functions": len(binary.exported_jni_functions),
                         "vulnerable_jni_functions": vulnerable_jni_count
                     }
