@@ -1,0 +1,4 @@
+*.so
+*.json
+cli_config.yaml
+__pycache__

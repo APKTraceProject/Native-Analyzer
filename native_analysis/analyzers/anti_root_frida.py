@@ -1,0 +1,14 @@
+"""
+[FRD-001] Anti-Root and Anti-Frida Analyzer
+"""
+
+from typing import List
+from native_analysis.analyzers.base_analyzer import BaseAnalyzer
+from native_analysis.models.parsed_binary import ParsedBinary
+from native_analysis.models.finding import Finding
+
+class AntiRootFridaAnalyzer(BaseAnalyzer):
+    """Detects anti-root binary checks or Frida port scanning."""
+
+    def analyze(self, binary: ParsedBinary) -> List[Finding]:
+        return self._scan_function_with_patterns(binary)

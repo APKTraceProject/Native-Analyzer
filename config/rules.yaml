@@ -1,0 +1,172 @@
+# APKTrace - Native Analysis Vulnerability Signature Rules
+rules:
+  - id: BOF-001
+    name: Buffer Overflow Vulnerability
+    severity: CRITICAL
+    confidence: HIGH
+    category: Buffer Overflow
+    patterns:
+      - strcpy\s*\(
+      - strcat\s*\(
+      - gets\s*\(
+      - sprintf\s*\(
+      - memcpy\s*\(
+    description: Unsafe memory function call detected without explicit bounds checking.
+
+  - id: INJ-001
+    name: Command Injection Vulnerability
+    severity: CRITICAL
+    confidence: HIGH
+    category: Command Injection
+    patterns:
+      - system\s*\(
+      - popen\s*\(
+      - execve\s*\(
+      - execl\s*\(
+    description: User-controlled input passed directly into shell execution function.
+
+  - id: FMT-001
+    name: Format String Vulnerability
+    severity: HIGH
+    confidence: HIGH
+    category: Format String
+    patterns:
+      - printf\s*\(\s*[^,"]+\s*\)
+      - sprintf\s*\(\s*[^,]+,\s*[^,"]+\s*\)
+      - __android_log_print\s*\([^,]+,\s*[^,]+,\s*[^,"]+\s*\)
+    description: Non-literal format string passed directly to print variant.
+
+  - id: CRY-001
+    name: Weak Cryptographic Algorithm
+    severity: HIGH
+    confidence: MEDIUM
+    category: Weak Crypto
+    patterns:
+      - MD5_Init
+      - SHA1_Init
+      - DES_ecb_encrypt
+      - AES_cbc_encrypt
+      - RC4
+    description: Insecure or legacy cryptographic hash/cipher detected in native binary.
+
+  - id: DBG-001
+    name: Anti-Debugging / Ptrace Usage
+    severity: MEDIUM
+    confidence: HIGH
+    category: Anti-Debugging
+    patterns:
+      - ptrace\s*\(\s*PTRACE_TRACEME
+      - ptrace\s*\(
+      - /proc/self/status
+      - TracerPid
+    description: Detection of anti-debugging mechanism or process tracing attempt.
+
+  - id: MEM-001
+    name: Double Free or Use-After-Free
+    severity: HIGH
+    confidence: MEDIUM
+    category: Memory Management
+    patterns:
+      - free\s*\(
+      - realloc\s*\(
+    description: Potential double free or memory management lifecycle bug detected.
+
+  - id: JNI-001
+    name: Unchecked JNI Boundary Pointer Leak
+    severity: HIGH
+    confidence: HIGH
+    category: JNI Boundary Leaks
+    patterns:
+      - GetStringUTFChars
+      - GetByteArrayElements
+      - ReleaseStringUTFChars
+      - ReleaseByteArrayElements
+    description: Native JNI pointer acquired without proper release or boundary checks.
+
+  - id: PRM-001
+    name: Insecure File Permission Setting
+    severity: MEDIUM
+    confidence: HIGH
+    category: File Permission Flaws
+    patterns:
+      - chmod\s*\([^,]+,\s*0777\)
+      - chmod\s*\([^,]+,\s*0666\)
+      - umask\s*\(\s*0\s*\)
+    description: World-writable or overly permissive file access modes detected.
+
+  - id: INT-001
+    name: Potential Integer Overflow Arithmetic
+    severity: MEDIUM
+    confidence: LOW
+    category: Integer Overflow
+    patterns:
+      - malloc\s*\(\s*[^)]*[*+]\s*[^)]*\)
+    description: Integer calculation used directly inside dynamic allocation size parameter.
+
+  - id: IPC-001
+    name: Unencrypted Local Socket / IPC
+    severity: HIGH
+    confidence: MEDIUM
+    category: Insecure IPC
+    patterns:
+      - socket\s*\(\s*AF_UNIX
+      - bind\s*\(
+      - connect\s*\(
+    description: Local UNIX socket or IPC channel instantiated without authentication checks.
+
+  - id: NUL-001
+    name: Unchecked Null Pointer Dereference
+    severity: MEDIUM
+    confidence: LOW
+    category: Null Pointer Dereference
+    patterns:
+      - malloc
+      - calloc
+    description: Dynamic memory allocated without subsequent null verification before use.
+
+  - id: RND-001
+    name: Insecure Pseudo-Random Number Generation
+    severity: LOW
+    confidence: HIGH
+    category: Insecure Randomness
+    patterns:
+      - \brand\s*\(
+      - \bsrand\s*\(
+    description: Predictable PRNG used for security-sensitive operations.
+
+  - id: REF-001
+    name: Dangerous JNI Reflection Call
+    severity: HIGH
+    confidence: MEDIUM
+    category: JNI Reflection Abuse
+    patterns:
+      - FindClass
+      - GetMethodID
+      - CallObjectMethod
+      - CallVoidMethod
+    description: Unvalidated Java reflection invoked through JNI environment.
+
+  - id: FRD-001
+    name: Anti-Root & Frida Detection Heuristics
+    severity: LOW
+    confidence: MEDIUM
+    category: Anti-Root/Frida
+    patterns:
+      - /system/bin/su
+      - /system/xbin/su
+      - frida-server
+      - 27042
+      - /proc/net/tcp
+    description: Environment check scanning for rooted devices or Frida dynamic instrumentation.
+
+  - id: STR-001
+    name: Plaintext Sensitive String / Obfuscation Missing
+    severity: LOW
+    confidence: MEDIUM
+    category: String Obfuscation
+    patterns:
+      - "http://"
+      - "api_key="
+      - "password="
+      - "bearer "
+    description: Plaintext credentials or sensitive strings exposed in native binary strings table.
