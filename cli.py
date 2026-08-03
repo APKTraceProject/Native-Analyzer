@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """
-APKTrace - Native Analysis Standalone CLI Test Driver
+APKTrace - Native Security Analysis Standalone CLI Test Driver
+
+Command-line interface driver for running static vulnerability analysis against Android
+native shared libraries (.so / ELF binaries). Handles argument parsing, configuration loading,
+logging, target verification, engine execution, and JSON report generation.
 """
 
 import sys
@@ -18,7 +22,7 @@ COLOR_RED = "\033[91m"
 COLOR_BOLD = "\033[1m"
 
 def print_header():
-    """Prints clean ASCII header without version numbers."""
+    """Prints clean ASCII terminal banner and header for the APKTrace engine."""
     header = f"""
 {COLOR_CYAN}{COLOR_BOLD}====================================================
            APKTrace - Native Analysis               
@@ -28,11 +32,22 @@ def print_header():
     print(header)
 
 def print_status(icon: str, color: str, message: str):
-    """Prints concise status line with colored ANSI icon."""
+    """
+    Prints a concise status line formatted with colored ANSI icon brackets.
+    
+    @param icon Character or symbol icon (e.g. '+', '*', 'X', '✓').
+    @param color ANSI color sequence string.
+    @param message Text status message to display.
+    """
     print(f" [{color}{icon}{COLOR_RESET}] {message}")
 
 def format_exception_log(e: Exception) -> str:
-    """Formats exception with file path, line number, method name, and error message."""
+    """
+    Formats exception details including relative file path, line number, method name, and message.
+    
+    @param e Exception instance captured during runtime execution.
+    @return str Multi-line formatted error traceback string.
+    """
     tb = traceback.extract_tb(e.__traceback__)
     if tb:
         last_frame = tb[-1]
@@ -55,7 +70,16 @@ def format_exception_log(e: Exception) -> str:
     return f"Critical failure:\n    Error: {err_type}: {str(e)}"
 
 def main():
-    """Main CLI execution flow for standalone test mode."""
+    """
+    Main CLI entry point orchestrating configuration loading, scan engine execution, and report writing.
+    
+    Execution Flow:
+    1. Displays ASCII banner and parses command-line arguments (-c, -t, -o).
+    2. Loads rules and CLI configuration parameters via ConfigLoader.
+    3. Verifies target file on disk (synthesizing dummy ELF library if missing).
+    4. Initializes ScanEngine and runs static vulnerability scan.
+    5. Exports 3-tier structured JSON report artifact via JSONReporter.
+    """
     print_header()
 
     # Parse command line flags or use config defaults

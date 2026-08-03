@@ -12,21 +12,33 @@ from typing import Tuple, Dict, List, Optional, Any
 from native_analysis.models.rule import Rule
 
 class ConfigLoader:
-    """Utility class to read rules.yaml and cli_config.yaml."""
+    """
+    Utility loader providing YAML configuration parsing and vulnerability rule loading.
+    
+    Supports both PyYAML standard parsing and a lightweight zero-dependency fallback YAML parser
+    to ensure seamless execution across constrained runtime environments.
+    """
 
     @staticmethod
     def _fallback_parse_yaml(file_content: str) -> Dict[str, Any]:
-        """Simple line-based parser when PyYAML is not installed."""
+        """
+        Lightweight fallback YAML parser for environments without PyYAML installed.
+        
+        @param file_content Raw text content of YAML configuration file.
+        @return Dict[str, Any] Parsed rule dictionary structure.
+        """
         rules = []
         current_rule = None
         in_patterns = False
         cli_dict = {}
 
+        # Line-by-line parsing of basic YAML key-value pairs and rule blocks
         for raw_line in file_content.splitlines():
             line = raw_line.strip()
             if not line or line.startswith("#"):
                 continue
 
+            # Parse top-level key-value settings
             if ":" in raw_line and not raw_line.strip().startswith("- "):
                 key, val = raw_line.split(":", 1)
                 key = key.strip()
@@ -34,6 +46,7 @@ class ConfigLoader:
                 if val:
                     cli_dict[key] = val
 
+            # Parse list rule items
             if line.startswith("- id:"):
                 current_rule = {"id": line.split(":", 1)[1].strip(), "patterns": []}
                 rules.append(current_rule)
@@ -60,16 +73,13 @@ class ConfigLoader:
     @staticmethod
     def load_rules(rules_path: str = "config/rules.yaml") -> List[Rule]:
         """
-        Loads signature rules from YAML file.
+        Loads signature rules from YAML file into strongly-typed Rule dataclass objects.
         
-        Args:
-            rules_path: File system path to rules.yaml.
-            
-        Returns:
-            List of Rule dataclass objects.
+        @param rules_path Filesystem path to rules.yaml file.
+        @return List[Rule] List of loaded Rule dataclass instances.
         """
         if not os.path.exists(rules_path):
-            # Fallback path if invoked from different working directory
+            # Resolve alternative relative path if invoked from nested directory
             alt_path = os.path.join(os.path.dirname(__file__), "..", "..", rules_path)
             if os.path.exists(alt_path):
                 rules_path = alt_path
@@ -100,8 +110,10 @@ class ConfigLoader:
     @staticmethod
     def load_cli_config(config_path: str = "config/cli_config.yaml") -> Dict[str, Any]:
         """
-        Loads CLI configuration containing target paths and ghidra headless binary path.
-        Checks for cli_config.yaml first, then falls back to cli_config.yaml.example.
+        Loads CLI configuration containing default target library paths and Ghidra settings.
+        
+        @param config_path Path to cli_config.yaml configuration file.
+        @return Dict[str, Any] Configuration options dictionary.
         """
         if not os.path.exists(config_path):
             example_path = config_path + ".example"
@@ -116,6 +128,7 @@ class ConfigLoader:
                 else:
                     return ConfigLoader._fallback_parse_yaml(content)
         
+        # Default configuration fallback dictionary
         return {
             "target_so_path": "./tests/libnative.so",
             "output_json_path": "./output/report.json",

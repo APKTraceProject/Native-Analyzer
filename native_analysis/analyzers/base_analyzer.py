@@ -84,6 +84,10 @@ class BaseAnalyzer(ABC):
         """
         Standardized scanner iterating through functions and matching rule patterns.
         Applies function-level deduplication to retain 1 finding per rule per function.
+        
+        @param binary ParsedBinary payload with decompiled C code and metadata.
+        @param rule_override Optional custom Rule object overriding self.rule.
+        @return List[Finding] Generated vulnerability findings.
         """
         target_rule = rule_override if rule_override else self.rule
         findings: List[Finding] = []
@@ -91,17 +95,19 @@ class BaseAnalyzer(ABC):
 
         patterns = target_rule.patterns if isinstance(target_rule.patterns, list) else []
         for func in binary.functions:
-            # Check for scope deduplication
+            # Check for scope-based deduplication key: (rule_id, function_name)
             scope_key = (target_rule.id, func.name)
             if scope_key in seen_function_scopes:
                 continue
 
             for idx, line in enumerate(func.code_lines):
                 for pattern in patterns:
+                    # Match regex pattern against C line
                     if isinstance(pattern, str) and re.search(pattern, line):
-                        # Dedup hit
+                        # Mark scope as analyzed to enforce single finding per rule per function
                         seen_function_scopes.add(scope_key)
                         
+                        # Extract 20-line window around trigger statement
                         context_path = self._extract_context_window(
                             code_lines=func.code_lines,
                             trigger_index=idx,
@@ -111,7 +117,7 @@ class BaseAnalyzer(ABC):
                         var_name = self._extract_target_variable(line, pattern)
                         line_no = idx + 1
 
-                        # Check if section is a static string / data section or if static string rule
+                        # Determine if target section represents static data or global string section
                         is_string_sec = (
                             func.name == "global_strings_section" or
                             func.name.endswith("_section") or
@@ -136,7 +142,7 @@ class BaseAnalyzer(ABC):
                                 is_exported_jni=func.is_exported_jni
                             )
 
-                            # Search for actual function definition signature line
+                            # Locate function signature or parameter declaration line
                             src_line_no = None
                             for s_idx, s_line in enumerate(func.code_lines[:idx]):
                                 s_line_clean = s_line.strip()
@@ -168,8 +174,8 @@ class BaseAnalyzer(ABC):
                             flow_analysis=flow
                         )
                         findings.append(finding)
-                        break  # Break pattern loop once matched for this line
+                        break  # Stop evaluating patterns for this line once matched
                 if scope_key in seen_function_scopes:
-                    break  # Break function line loop once matched for scope
+                    break  # Stop iterating lines for this function once scope deduplicated
 
         return findings
