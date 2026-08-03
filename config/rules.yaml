@@ -33,6 +33,7 @@ rules:
     patterns:
       - printf\s*\(\s*[^,"]+\s*\)
       - sprintf\s*\(\s*[^,]+,\s*[^,"]+\s*\)
+      - vprintf\s*\(\s*[^,"]+\s*\)
       - __android_log_print\s*\([^,]+,\s*[^,]+,\s*[^,"]+\s*\)
     description: Non-literal format string passed directly to print variant.
 
@@ -47,7 +48,9 @@ rules:
       - DES_ecb_encrypt
       - AES_cbc_encrypt
       - RC4
-    description: Insecure or legacy cryptographic hash/cipher detected in native binary.
+      - \^=
+      - \bXOR\b
+    description: Insecure or legacy cryptographic hash, cipher, or single-byte XOR detected in native binary.
 
   - id: DBG-001
     name: Anti-Debugging / Ptrace Usage
@@ -89,8 +92,10 @@ rules:
     confidence: HIGH
     category: File Permission Flaws
     patterns:
-      - chmod\s*\([^,]+,\s*0777\)
-      - chmod\s*\([^,]+,\s*0666\)
+      - chmod\s*\([^,]+,\s*0?777\)
+      - chmod\s*\([^,]+,\s*0?666\)
+      - mkdir\s*\([^,]+,\s*0?777\)
+      - open\s*\([^,]+,\s*[^,]+,\s*0?666\)
       - umask\s*\(\s*0\s*\)
     description: World-writable or overly permissive file access modes detected.
 
@@ -132,6 +137,7 @@ rules:
     patterns:
       - \brand\s*\(
       - \bsrand\s*\(
+      - srand\s*\(\s*time\s*\(
     description: Predictable PRNG used for security-sensitive operations.
 
   - id: REF-001

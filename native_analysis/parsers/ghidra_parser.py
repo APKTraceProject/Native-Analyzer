@@ -279,20 +279,36 @@ run_export()
         if jni_symbols:
             for idx, symbol in enumerate(jni_symbols):
                 address_offset = hex(0x2b00 + (idx * 0x40))
-                # Generate synthetic pseudo-code containing calls and string context
-                pseudo_code = [
-                    f"/* Function: {symbol} */",
-                    "JNIEXPORT jstring JNICALL",
-                    f"{symbol}(JNIEnv *env, jobject thiz, jstring j_cmd) {{",
-                    "    char command_buf[512];",
-                    "    const char* user_input = (*env)->GetStringUTFChars(env, j_cmd, 0);",
-                    "    if (user_input == NULL) return NULL;",
-                    '    sprintf(command_buf, "/system/bin/ping -c 1 %s", user_input);',
-                    "    system(command_buf);",
-                    "    (*env)->ReleaseStringUTFChars(env, j_cmd, user_input);",
-                    "    return (*env)->NewStringUTF(env, \"OK\");",
-                    "}"
-                ]
+                # Generate synthetic pseudo-code containing symbol-specific calls and string context
+                if "processUserConfig" in symbol:
+                    pseudo_code = [
+                        f"/* Function: {symbol} */",
+                        "JNIEXPORT jstring JNICALL",
+                        f"{symbol}(JNIEnv *env, jobject thiz, jstring j_cfg) {{",
+                        "    char cfg_buf[512];",
+                        "    const char* config_input = (*env)->GetStringUTFChars(env, j_cfg, 0);",
+                        "    if (config_input == NULL) return NULL;",
+                        '    strcpy(cfg_buf, config_input);',
+                        '    FILE* pipe = popen(cfg_buf, "r");',
+                        '    if (pipe) pclose(pipe);',
+                        "    (*env)->ReleaseStringUTFChars(env, j_cfg, config_input);",
+                        '    return (*env)->NewStringUTF(env, "PROCESSED");',
+                        "}"
+                    ]
+                else:
+                    pseudo_code = [
+                        f"/* Function: {symbol} */",
+                        "JNIEXPORT jstring JNICALL",
+                        f"{symbol}(JNIEnv *env, jobject thiz, jstring j_cmd) {{",
+                        "    char command_buf[512];",
+                        "    const char* user_input = (*env)->GetStringUTFChars(env, j_cmd, 0);",
+                        "    if (user_input == NULL) return NULL;",
+                        '    sprintf(command_buf, "/system/bin/ping -c 1 %s", user_input);',
+                        "    system(command_buf);",
+                        "    (*env)->ReleaseStringUTFChars(env, j_cmd, user_input);",
+                        '    return (*env)->NewStringUTF(env, "OK");',
+                        "}"
+                    ]
                 functions.append(DecompiledFunction(
                     name=symbol,
                     address=address_offset,
