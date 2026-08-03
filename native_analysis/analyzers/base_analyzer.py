@@ -83,7 +83,7 @@ class BaseAnalyzer(ABC):
     ) -> List[Finding]:
         """
         Standardized scanner iterating through functions and matching rule patterns.
-        Applies function-level deduplication to retain 1 finding per rule per function.
+        Extracts fine-grained sub-rule IDs, severity, and confidence from matched RulePattern objects.
         
         @param binary ParsedBinary payload with decompiled C code and metadata.
         @param rule_override Optional custom Rule object overriding self.rule.
@@ -95,16 +95,30 @@ class BaseAnalyzer(ABC):
 
         patterns = target_rule.patterns if isinstance(target_rule.patterns, list) else []
         for func in binary.functions:
-            # Check for scope-based deduplication key: (rule_id, function_name)
-            scope_key = (target_rule.id, func.name)
-            if scope_key in seen_function_scopes:
-                continue
-
             for idx, line in enumerate(func.code_lines):
-                for pattern in patterns:
+                for pat_obj in patterns:
+                    # Extract pattern string, sub-rule ID, severity, confidence
+                    if hasattr(pat_obj, "pattern"):
+                        pat_str = pat_obj.pattern
+                        sub_rule_id = pat_obj.id
+                        sev = pat_obj.severity
+                        conf = pat_obj.confidence
+                    elif isinstance(pat_obj, str):
+                        pat_str = pat_obj
+                        sub_rule_id = target_rule.id
+                        sev = target_rule.severity
+                        conf = target_rule.confidence
+                    else:
+                        continue
+
+                    # Scope-based deduplication per sub-rule ID or parent rule ID per function
+                    scope_key = (sub_rule_id, func.name)
+                    if scope_key in seen_function_scopes:
+                        continue
+
                     # Match regex pattern against C line
-                    if isinstance(pattern, str) and re.search(pattern, line):
-                        # Mark scope as analyzed to enforce single finding per rule per function
+                    if pat_str and re.search(pat_str, line):
+                        # Mark scope as analyzed to enforce single finding per sub-rule per function
                         seen_function_scopes.add(scope_key)
                         
                         # Extract 20-line window around trigger statement
@@ -114,7 +128,7 @@ class BaseAnalyzer(ABC):
                             address=func.address
                         )
 
-                        var_name = self._extract_target_variable(line, pattern)
+                        var_name = self._extract_target_variable(line, pat_str)
                         line_no = idx + 1
 
                         # Determine if target section represents static data or global string section
@@ -133,7 +147,7 @@ class BaseAnalyzer(ABC):
                                 is_exported_jni=False
                             )
                             source_desc = "Hardcoded static binary string artifact"
-                            sink_desc = f"Unsanitized reference via pattern '{pattern}' at line {line_no}"
+                            sink_desc = f"Unsanitized reference via pattern '{pat_str}' at line {line_no}"
                         else:
                             loc = Location(
                                 function_name=func.name,
@@ -154,7 +168,7 @@ class BaseAnalyzer(ABC):
                                 src_line_no = max(1, line_no - 1)
 
                             source_desc = f"JNI or internal parameter passed to function '{func.name}' at line {src_line_no}"
-                            sink_desc = f"Unsanitized call via pattern '{pattern}' at line {line_no}"
+                            sink_desc = f"Unsanitized call via pattern '{pat_str}' at line {line_no}"
 
                         flow = FlowAnalysis(
                             source=source_desc,
@@ -164,9 +178,9 @@ class BaseAnalyzer(ABC):
 
                         finding = Finding(
                             finding_id=f"FIND-{len(findings)+1:02d}",
-                            rule_id=target_rule.id,
-                            severity=target_rule.severity,
-                            confidence=target_rule.confidence,
+                            rule_id=sub_rule_id,
+                            severity=sev,
+                            confidence=conf,
                             target_file=binary.apk_relative_path,
                             location=loc,
                             target_variable=var_name,
@@ -175,7 +189,5 @@ class BaseAnalyzer(ABC):
                         )
                         findings.append(finding)
                         break  # Stop evaluating patterns for this line once matched
-                if scope_key in seen_function_scopes:
-                    break  # Stop iterating lines for this function once scope deduplicated
 
         return findings

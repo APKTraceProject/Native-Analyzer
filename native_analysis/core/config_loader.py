@@ -9,7 +9,7 @@ except ImportError:
     yaml = None
 
 from typing import Tuple, Dict, List, Optional, Any
-from native_analysis.models.rule import Rule
+from native_analysis.models.rule import Rule, RulePattern
 
 class ConfigLoader:
     """
@@ -29,6 +29,7 @@ class ConfigLoader:
         """
         rules = []
         current_rule = None
+        current_pattern = None
         in_patterns = False
         cli_dict = {}
 
@@ -43,37 +44,53 @@ class ConfigLoader:
                 key, val = raw_line.split(":", 1)
                 key = key.strip()
                 val = val.strip().strip('"').strip("'")
-                if val:
+                if val and not current_rule:
                     cli_dict[key] = val
 
             # Parse list rule items
-            if line.startswith("- id:"):
+            if line.startswith("- id:") and not in_patterns:
                 current_rule = {"id": line.split(":", 1)[1].strip(), "patterns": []}
                 rules.append(current_rule)
                 in_patterns = False
+                current_pattern = None
             elif current_rule is not None:
                 if line.startswith("name:"):
                     current_rule["name"] = line.split(":", 1)[1].strip()
-                elif line.startswith("severity:"):
+                elif line.startswith("severity:") and not current_pattern:
                     current_rule["severity"] = line.split(":", 1)[1].strip()
-                elif line.startswith("confidence:"):
+                elif line.startswith("confidence:") and not current_pattern:
                     current_rule["confidence"] = line.split(":", 1)[1].strip()
                 elif line.startswith("category:"):
                     current_rule["category"] = line.split(":", 1)[1].strip()
-                elif line.startswith("description:"):
+                elif line.startswith("description:") and not in_patterns:
                     current_rule["description"] = line.split(":", 1)[1].strip()
                 elif line.startswith("patterns:"):
                     in_patterns = True
-                elif in_patterns and line.startswith("- "):
-                    pattern_val = line[2:].strip().strip('"').strip("'")
-                    current_rule["patterns"].append(pattern_val)
+                elif in_patterns:
+                    if line.startswith("- id:"):
+                        p_id = line.split(":", 1)[1].strip()
+                        current_pattern = {"id": p_id}
+                        current_rule["patterns"].append(current_pattern)
+                    elif current_pattern is not None:
+                        if line.startswith("pattern:"):
+                            current_pattern["pattern"] = line.split(":", 1)[1].strip().strip('"').strip("'")
+                        elif line.startswith("severity:"):
+                            current_pattern["severity"] = line.split(":", 1)[1].strip()
+                        elif line.startswith("confidence:"):
+                            current_pattern["confidence"] = line.split(":", 1)[1].strip()
+                        elif line.startswith("description:"):
+                            current_pattern["description"] = line.split(":", 1)[1].strip().strip('"').strip("'")
+                    elif line.startswith("- "):
+                        # String pattern fallback
+                        pattern_val = line[2:].strip().strip('"').strip("'")
+                        current_rule["patterns"].append({"id": current_rule["id"], "pattern": pattern_val})
 
         return {"rules": rules, **cli_dict}
 
     @staticmethod
     def load_rules(rules_path: str = "config/rules.yaml") -> List[Rule]:
         """
-        Loads signature rules from YAML file into strongly-typed Rule dataclass objects.
+        Loads signature rules from YAML file into strongly-typed Rule dataclass objects with nested RulePattern objects.
         
         @param rules_path Filesystem path to rules.yaml file.
         @return List[Rule] List of loaded Rule dataclass instances.
@@ -95,13 +112,42 @@ class ConfigLoader:
 
                 if data and "rules" in data:
                     for r_dict in data["rules"]:
+                        raw_patterns = r_dict.get("patterns", [])
+                        pattern_objs: List[RulePattern] = []
+
+                        default_sev = r_dict.get("severity", "LOW")
+                        default_conf = r_dict.get("confidence", "LOW")
+                        default_rule_id = r_dict.get("id", "GEN-001")
+
+                        for p in raw_patterns:
+                            if isinstance(p, dict):
+                                pattern_objs.append(
+                                    RulePattern(
+                                        id=p.get("id", default_rule_id),
+                                        pattern=p.get("pattern", ""),
+                                        severity=p.get("severity", default_sev),
+                                        confidence=p.get("confidence", default_conf),
+                                        description=p.get("description", None)
+                                    )
+                                )
+                            elif isinstance(p, str):
+                                pattern_objs.append(
+                                    RulePattern(
+                                        id=default_rule_id,
+                                        pattern=p,
+                                        severity=default_sev,
+                                        confidence=default_conf,
+                                        description=None
+                                    )
+                                )
+
                         rule_obj = Rule(
-                            id=r_dict.get("id", "GEN-001"),
+                            id=default_rule_id,
                             name=r_dict.get("name", "Generic Rule"),
-                            severity=r_dict.get("severity", "LOW"),
-                            confidence=r_dict.get("confidence", "LOW"),
+                            severity=default_sev,
+                            confidence=default_conf,
                             category=r_dict.get("category", "General"),
-                            patterns=r_dict.get("patterns", []),
+                            patterns=pattern_objs,
                             description=r_dict.get("description", "")
                         )
                         rules.append(rule_obj)
@@ -134,3 +180,4 @@ class ConfigLoader:
             "output_json_path": "./output/report.json",
             "ghidra_headless_path": None
         }
+

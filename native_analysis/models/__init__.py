@@ -8,7 +8,7 @@ exploit mitigations, vulnerability findings, locations, and rules.
 from native_analysis.models.finding import Finding, FlowAnalysis
 from native_analysis.models.location import Location
 from native_analysis.models.parsed_binary import ParsedBinary, DecompiledFunction, BinaryMitigations
-from native_analysis.models.rule import Rule
+from native_analysis.models.rule import Rule, RulePattern
 
 __all__ = [
     "Finding",
@@ -18,4 +18,5 @@ __all__ = [
     "DecompiledFunction",
     "BinaryMitigations",
     "Rule",
+    "RulePattern",
 ]

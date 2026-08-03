@@ -5,186 +5,462 @@ rules:
     severity: CRITICAL
     confidence: HIGH
     category: Buffer Overflow
-    patterns:
-      - strcpy\s*\(
-      - strcat\s*\(
-      - gets\s*\(
-      - sprintf\s*\(
-      - memcpy\s*\(
     description: Unsafe memory function call detected without explicit bounds checking.
+    patterns:
+      - id: BOF-001
+        pattern: gets\s*\(
+        severity: CRITICAL
+        confidence: HIGH
+        description: Usage of gets() which is inherently dangerous and lacks any buffer size restriction.
+      - id: BOF-002
+        pattern: strcpy\s*\(
+        severity: CRITICAL
+        confidence: HIGH
+        description: Unbounded string copy using strcpy() without size limit.
+      - id: BOF-003
+        pattern: strcat\s*\(
+        severity: HIGH
+        confidence: HIGH
+        description: Unbounded string concatenation using strcat() without size limit.
+      - id: BOF-004
+        pattern: sprintf\s*\(
+        severity: HIGH
+        confidence: MEDIUM
+        description: Potentially unsafe sprintf() call writing to fixed-size destination buffer.
+      - id: BOF-005
+        pattern: memcpy\s*\(
+        severity: MEDIUM
+        confidence: MEDIUM
+        description: Memory copy operation with memcpy() requiring verification of size parameters.
 
   - id: INJ-001
     name: Command Injection Vulnerability
     severity: CRITICAL
     confidence: HIGH
     category: Command Injection
-    patterns:
-      - system\s*\(
-      - popen\s*\(
-      - execve\s*\(
-      - execl\s*\(
     description: User-controlled input passed directly into shell execution function.
+    patterns:
+      - id: INJ-001
+        pattern: system\s*\(
+        severity: CRITICAL
+        confidence: HIGH
+        description: System shell invocation via system() with potential user-controlled arguments.
+      - id: INJ-002
+        pattern: popen\s*\(
+        severity: CRITICAL
+        confidence: HIGH
+        description: Process creation via popen() executing shell commands with unvalidated arguments.
+      - id: INJ-003
+        pattern: execve\s*\(
+        severity: HIGH
+        confidence: HIGH
+        description: Low-level process execution via execve() requiring strict argument sanitization.
+      - id: INJ-004
+        pattern: execl\s*\(
+        severity: HIGH
+        confidence: HIGH
+        description: Process replacement call execl() receiving potentially unvalidated arguments.
 
   - id: FMT-001
     name: Format String Vulnerability
     severity: HIGH
     confidence: HIGH
     category: Format String
-    patterns:
-      - printf\s*\(\s*[^,"]+\s*\)
-      - sprintf\s*\(\s*[^,]+,\s*[^,"]+\s*\)
-      - vprintf\s*\(\s*[^,"]+\s*\)
-      - vfprintf\s*\(\s*[^,]+,\s*[^,"]+\s*\)
-      - syslog\s*\(\s*[^,]+,\s*[^,"]+\s*\)
-      - __android_log_print\s*\([^,]+,\s*[^,]+,\s*[^,"]+\s*\)
     description: Non-literal format string passed directly to print variant.
+    patterns:
+      - id: FMT-001
+        pattern: printf\s*\(\s*[^,"]+\s*\)
+        severity: HIGH
+        confidence: HIGH
+        description: Direct passing of non-literal variable to printf() format string argument.
+      - id: FMT-002
+        pattern: sprintf\s*\(\s*[^,]+,\s*[^,"]+\s*\)
+        severity: HIGH
+        confidence: HIGH
+        description: Non-literal format string passed to sprintf() enabling format string exploitation.
+      - id: FMT-003
+        pattern: vprintf\s*\(\s*[^,"]+\s*\)
+        severity: HIGH
+        confidence: HIGH
+        description: Variadic vprintf() invocation using non-literal format string parameter.
+      - id: FMT-004
+        pattern: vfprintf\s*\(\s*[^,]+,\s*[^,"]+\s*\)
+        severity: HIGH
+        confidence: HIGH
+        description: Stream formatting vfprintf() call using dynamic or non-literal format string.
+      - id: FMT-005
+        pattern: syslog\s*\(\s*[^,]+,\s*[^,"]+\s*\)
+        severity: MEDIUM
+        confidence: HIGH
+        description: System log formatting call syslog() using non-literal format parameter.
+      - id: FMT-006
+        pattern: __android_log_print\s*\([^,]+,\s*[^,]+,\s*[^,"]+\s*\)
+        severity: MEDIUM
+        confidence: HIGH
+        description: Android logging function __android_log_print() with dynamic format string.
 
   - id: CRY-001
     name: Weak Cryptographic Algorithm
     severity: HIGH
     confidence: MEDIUM
     category: Weak Crypto
-    patterns:
-      - MD5_Init
-      - SHA1_Init
-      - DES_ecb_encrypt
-      - AES_cbc_encrypt
-      - RC4
-      - \^=
-      - \bXOR\b
     description: Insecure or legacy cryptographic hash, cipher, or single-byte XOR detected in native binary.
+    patterns:
+      - id: CRY-001
+        pattern: MD5_Init
+        severity: MEDIUM
+        confidence: HIGH
+        description: Use of legacy MD5 hashing algorithm vulnerable to collision attacks.
+      - id: CRY-002
+        pattern: SHA1_Init
+        severity: LOW
+        confidence: HIGH
+        description: Use of weak SHA-1 hashing algorithm vulnerable to practical collision attacks.
+      - id: CRY-003
+        pattern: DES_ecb_encrypt
+        severity: HIGH
+        confidence: HIGH
+        description: Use of broken DES cipher in ECB mode exposing identical plaintext blocks.
+      - id: CRY-004
+        pattern: AES_cbc_encrypt
+        severity: MEDIUM
+        confidence: MEDIUM
+        description: Use of AES-CBC mode requiring explicit MAC verification to prevent padding oracle attacks.
+      - id: CRY-005
+        pattern: RC4
+        severity: HIGH
+        confidence: HIGH
+        description: Use of deprecated RC4 stream cipher known for statistical biases.
+      - id: CRY-006
+        pattern: \^=
+        severity: LOW
+        confidence: MEDIUM
+        description: Potential custom single-byte XOR rotation encryption loop detected.
+      - id: CRY-007
+        pattern: \bXOR\b
+        severity: LOW
+        confidence: LOW
+        description: Insecure custom XOR obfuscation or encryption reference found.
 
   - id: DBG-001
     name: Anti-Debugging / Ptrace Usage
     severity: MEDIUM
     confidence: HIGH
     category: Anti-Debugging
-    patterns:
-      - ptrace\s*\(\s*PTRACE_TRACEME
-      - ptrace\s*\(
-      - /proc/self/status
-      - TracerPid
     description: Detection of anti-debugging mechanism or process tracing attempt.
+    patterns:
+      - id: DBG-001
+        pattern: ptrace\s*\(\s*PTRACE_TRACEME
+        severity: MEDIUM
+        confidence: HIGH
+        description: Anti-debugging check using ptrace(PTRACE_TRACEME) to prevent debugger attachment.
+      - id: DBG-002
+        pattern: ptrace\s*\(
+        severity: MEDIUM
+        confidence: MEDIUM
+        description: Generic ptrace system call for process tracing or anti-analysis.
+      - id: DBG-003
+        pattern: /proc/self/status
+        severity: LOW
+        confidence: HIGH
+        description: Inspection of /proc/self/status pseudo-file to check TracerPid.
+      - id: DBG-004
+        pattern: TracerPid
+        severity: LOW
+        confidence: HIGH
+        description: TracerPid string reference used in anti-debugging detection routines.
 
   - id: MEM-001
     name: Double Free or Use-After-Free
     severity: HIGH
     confidence: MEDIUM
     category: Memory Management
-    patterns:
-      - free\s*\(
-      - realloc\s*\(
     description: Potential double free or memory management lifecycle bug detected.
+    patterns:
+      - id: MEM-001
+        pattern: free\s*\(
+        severity: HIGH
+        confidence: MEDIUM
+        description: Deallocation call using free() requiring tracking for double free or use-after-free.
+      - id: MEM-002
+        pattern: realloc\s*\(
+        severity: MEDIUM
+        confidence: MEDIUM
+        description: Reallocation call using realloc() which may leak original buffer on allocation failure.
 
   - id: JNI-001
     name: Unchecked JNI Boundary Pointer Leak
     severity: HIGH
     confidence: HIGH
     category: JNI Boundary Leaks
-    patterns:
-      - GetStringUTFChars
-      - GetByteArrayElements
-      - ReleaseStringUTFChars
-      - ReleaseByteArrayElements
     description: Native JNI pointer acquired without proper release or boundary checks.
+    patterns:
+      - id: JNI-001
+        pattern: GetStringUTFChars
+        severity: HIGH
+        confidence: HIGH
+        description: Acquisition of Java String UTF chars without verifying subsequent ReleaseStringUTFChars.
+      - id: JNI-002
+        pattern: GetByteArrayElements
+        severity: HIGH
+        confidence: HIGH
+        description: Acquisition of primitive byte array elements without verifying ReleaseByteArrayElements.
+      - id: JNI-003
+        pattern: ReleaseStringUTFChars
+        severity: LOW
+        confidence: HIGH
+        description: JNI ReleaseStringUTFChars boundary cleanup call.
+      - id: JNI-004
+        pattern: ReleaseByteArrayElements
+        severity: LOW
+        confidence: HIGH
+        description: JNI ReleaseByteArrayElements boundary cleanup call.
 
   - id: PRM-001
     name: Insecure File Permission Setting
     severity: MEDIUM
     confidence: HIGH
     category: File Permission Flaws
-    patterns:
-      - chmod\s*\([^,]+,\s*0?777\)
-      - chmod\s*\([^,]+,\s*0?666\)
-      - mkdir\s*\([^,]+,\s*0?777\)
-      - mkdir\s*\([^,]+,\s*0?666\)
-      - open\s*\([^,]+,\s*[^,]+,\s*0?666\)
-      - open\s*\([^,]+,\s*[^,]+,\s*0?777\)
-      - umask\s*\(\s*0\s*\)
     description: World-writable or overly permissive file access modes detected.
+    patterns:
+      - id: PRM-001
+        pattern: chmod\s*\([^,]+,\s*0?777\)
+        severity: HIGH
+        confidence: HIGH
+        description: Setting world-readable and world-writable (0777) file permissions via chmod.
+      - id: PRM-002
+        pattern: chmod\s*\([^,]+,\s*0?666\)
+        severity: MEDIUM
+        confidence: HIGH
+        description: Setting world-readable/writable (0666) file permissions via chmod.
+      - id: PRM-003
+        pattern: mkdir\s*\([^,]+,\s*0?777\)
+        severity: HIGH
+        confidence: HIGH
+        description: Directory creation with world-accessible 0777 mode permissions.
+      - id: PRM-004
+        pattern: mkdir\s*\([^,]+,\s*0?666\)
+        severity: MEDIUM
+        confidence: HIGH
+        description: Directory creation with world-accessible 0666 mode permissions.
+      - id: PRM-005
+        pattern: open\s*\([^,]+,\s*[^,]+,\s*0?666\)
+        severity: MEDIUM
+        confidence: HIGH
+        description: File open call setting world-accessible 0666 creation mode.
+      - id: PRM-006
+        pattern: open\s*\([^,]+,\s*[^,]+,\s*0?777\)
+        severity: HIGH
+        confidence: HIGH
+        description: File open call setting world-accessible 0777 creation mode.
+      - id: PRM-007
+        pattern: umask\s*\(\s*0\s*\)
+        severity: HIGH
+        confidence: HIGH
+        description: Clearing umask to 0, resulting in permissive default file creation flags.
 
   - id: INT-001
     name: Potential Integer Overflow Arithmetic
     severity: MEDIUM
     confidence: LOW
     category: Integer Overflow
-    patterns:
-      - malloc\s*\(\s*[^)]*[*+]\s*[^)]*\)
-      - calloc\s*\(\s*[^)]*[*+]\s*[^)]*\)
-      - realloc\s*\([^,]+,\s*[^)]*[*+]\s*[^)]*\)
     description: Integer calculation used directly inside dynamic allocation size parameter.
+    patterns:
+      - id: INT-001
+        pattern: malloc\s*\(\s*[^)]*[*+]\s*[^)]*\)
+        severity: HIGH
+        confidence: MEDIUM
+        description: Arithmetic multiplication/addition inside malloc() parameter causing integer overflow.
+      - id: INT-002
+        pattern: calloc\s*\(\s*[^)]*[*+]\s*[^)]*\)
+        severity: HIGH
+        confidence: MEDIUM
+        description: Arithmetic calculation inside calloc() argument causing integer wraparound.
+      - id: INT-003
+        pattern: realloc\s*\([^,]+,\s*[^)]*[*+]\s*[^)]*\)
+        severity: HIGH
+        confidence: MEDIUM
+        description: Arithmetic calculation inside realloc() parameter leading to buffer under-allocation.
 
   - id: IPC-001
     name: Unencrypted Local Socket / IPC
     severity: HIGH
     confidence: MEDIUM
     category: Insecure IPC
-    patterns:
-      - socket\s*\(\s*AF_UNIX
-      - bind\s*\(
-      - connect\s*\(
-      - /tmp/
-      - AF_UNIX
     description: Local UNIX socket or IPC channel instantiated without authentication checks.
+    patterns:
+      - id: IPC-001
+        pattern: socket\s*\(\s*AF_UNIX
+        severity: HIGH
+        confidence: HIGH
+        description: Local UNIX domain socket creation vulnerable to unauthenticated local IPC access.
+      - id: IPC-002
+        pattern: bind\s*\(
+        severity: MEDIUM
+        confidence: MEDIUM
+        description: Socket bind() operation requiring verification of local address permissions.
+      - id: IPC-003
+        pattern: connect\s*\(
+        severity: MEDIUM
+        confidence: LOW
+        description: Socket connect() call connecting to local IPC endpoint.
+      - id: IPC-004
+        pattern: /tmp/
+        severity: HIGH
+        confidence: HIGH
+        description: Insecure usage of world-writable /tmp/ directory for local IPC socket or file.
+      - id: IPC-005
+        pattern: AF_UNIX
+        severity: MEDIUM
+        confidence: MEDIUM
+        description: AF_UNIX domain socket constant reference in native code.
 
   - id: NUL-001
     name: Unchecked Null Pointer Dereference
     severity: MEDIUM
     confidence: LOW
     category: Null Pointer Dereference
-    patterns:
-      - malloc
-      - calloc
-      - realloc
     description: Dynamic memory allocated without subsequent null verification before use.
+    patterns:
+      - id: NUL-001
+        pattern: malloc
+        severity: MEDIUM
+        confidence: MEDIUM
+        description: Dynamic memory allocation via malloc requiring immediate NULL check.
+      - id: NUL-002
+        pattern: calloc
+        severity: MEDIUM
+        confidence: MEDIUM
+        description: Dynamic memory allocation via calloc requiring immediate NULL verification.
+      - id: NUL-003
+        pattern: realloc
+        severity: MEDIUM
+        confidence: MEDIUM
+        description: Reallocation via realloc requiring NULL check prior to pointer usage.
 
   - id: RND-001
     name: Insecure Pseudo-Random Number Generation
     severity: LOW
     confidence: HIGH
     category: Insecure Randomness
-    patterns:
-      - \brand\s*\(
-      - \bsrand\s*\(
-      - srand\s*\(\s*time\s*\(
     description: Predictable PRNG used for security-sensitive operations.
+    patterns:
+      - id: RND-001
+        pattern: \brand\s*\(
+        severity: LOW
+        confidence: HIGH
+        description: Use of predictable pseudo-random generator rand() for security operations.
+      - id: RND-002
+        pattern: \bsrand\s*\(
+        severity: LOW
+        confidence: HIGH
+        description: PRNG seeding using srand() with predictable time-based seed.
+      - id: RND-003
+        pattern: srand\s*\(\s*time\s*\(
+        severity: MEDIUM
+        confidence: HIGH
+        description: Time-based PRNG seeding via srand(time(NULL)) allowing token prediction.
 
   - id: REF-001
     name: Dangerous JNI Reflection Call
     severity: HIGH
     confidence: MEDIUM
     category: JNI Reflection Abuse
-    patterns:
-      - FindClass
-      - GetMethodID
-      - GetStaticMethodID
-      - CallObjectMethod
-      - CallVoidMethod
     description: Unvalidated Java reflection invoked through JNI environment.
+    patterns:
+      - id: REF-001
+        pattern: FindClass
+        severity: HIGH
+        confidence: MEDIUM
+        description: Dynamic Java class lookup via FindClass in JNI.
+      - id: REF-002
+        pattern: GetMethodID
+        severity: HIGH
+        confidence: MEDIUM
+        description: Reflection method resolution via GetMethodID in JNI.
+      - id: REF-003
+        pattern: GetStaticMethodID
+        severity: HIGH
+        confidence: MEDIUM
+        description: Reflection static method resolution via GetStaticMethodID in JNI.
+      - id: REF-004
+        pattern: CallObjectMethod
+        severity: HIGH
+        confidence: MEDIUM
+        description: Reflective Java method execution via CallObjectMethod.
+      - id: REF-005
+        pattern: CallVoidMethod
+        severity: HIGH
+        confidence: MEDIUM
+        description: Reflective Java void method execution via CallVoidMethod.
 
   - id: FRD-001
     name: Anti-Root & Frida Detection Heuristics
     severity: LOW
     confidence: MEDIUM
     category: Anti-Root/Frida
-    patterns:
-      - /system/bin/su
-      - /system/xbin/su
-      - frida-server
-      - 27042
-      - /proc/net/tcp
     description: Environment check scanning for rooted devices or Frida dynamic instrumentation.
+    patterns:
+      - id: FRD-001
+        pattern: /system/bin/su
+        severity: LOW
+        confidence: HIGH
+        description: Root detection probing for /system/bin/su binary.
+      - id: FRD-002
+        pattern: /system/xbin/su
+        severity: LOW
+        confidence: HIGH
+        description: Root detection probing for /system/xbin/su binary.
+      - id: FRD-003
+        pattern: frida-server
+        severity: LOW
+        confidence: HIGH
+        description: Anti-analysis check searching for frida-server string or process.
+      - id: FRD-004
+        pattern: "27042"
+        severity: LOW
+        confidence: HIGH
+        description: Anti-Frida check probing default Frida TCP control port 27042.
+      - id: FRD-005
+        pattern: /proc/net/tcp
+        severity: LOW
+        confidence: MEDIUM
+        description: Inspection of /proc/net/tcp to detect active instrumentation sockets.
 
   - id: STR-001
     name: Plaintext Sensitive String / Obfuscation Missing
     severity: LOW
     confidence: MEDIUM
     category: String Obfuscation
-    patterns:
-      - "http://"
-      - "api_key="
-      - "password="
-      - "bearer "
-      - "[0-9a-fA-F]{32}"
-      - GLOBAL_SECRET_KEY
     description: Plaintext credentials or sensitive strings exposed in native binary strings table.
+    patterns:
+      - id: STR-001
+        pattern: "http://"
+        severity: MEDIUM
+        confidence: HIGH
+        description: Unencrypted HTTP URL endpoint exposed in plaintext string table.
+      - id: STR-002
+        pattern: "api_key="
+        severity: HIGH
+        confidence: HIGH
+        description: Plaintext API key parameter exposed in native binary string table.
+      - id: STR-003
+        pattern: "password="
+        severity: HIGH
+        confidence: HIGH
+        description: Plaintext password field parameter exposed in binary string table.
+      - id: STR-004
+        pattern: "bearer "
+        severity: HIGH
+        confidence: HIGH
+        description: Plaintext Bearer authentication token prefix exposed in strings.
+      - id: STR-005
+        pattern: "[0-9a-fA-F]{32}"
+        severity: HIGH
+        confidence: HIGH
+        description: High-entropy 32-character hexadecimal key or token string in binary.
+      - id: STR-006
+        pattern: GLOBAL_SECRET_KEY
+        severity: HIGH
+        confidence: HIGH
+        description: Hardcoded secret key identifier exposed in native binary strings.

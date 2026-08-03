@@ -40,31 +40,44 @@
 
 1. **Ingestion & Metadata Extraction**: Reads raw binary headers, computes SHA-256 digests, and detects binary exploit mitigations (Stack Canaries, NX Bit, PIE, RELRO).
 2. **Decompilation Pipeline**: Invokes Ghidra Headless decompilation or executes the zero-dependency fallback heuristic parser to reconstruct C function bodies and `.rodata` string tables.
-3. **AST Pattern Matching & Flow Context**: Runs 15 specialized static analyzers across decompiled code blocks, extracting 20-line windowed code context paths mapping source-to-sink data flow.
-4. **Scope Deduplication**: Deduplicates findings per function scope and re-indexes finding identifiers (`FIND-01`, `FIND-02`, ...).
+3. **AST Pattern Matching & Flow Context**: Runs 15 specialized static analyzers across decompiled code blocks using fine-grained, pattern-specific sub-rule IDs (e.g., `BOF-001` for `gets()`, `BOF-002` for `strcpy()`, `BOF-004` for `sprintf()`).
+4. **Scope Deduplication**: Deduplicates findings per sub-rule ID and function scope, then re-indexes sequential finding identifiers (`FIND-01`, `FIND-02`, ...).
 5. **Report Serialization**: Produces standardized 3-tier JSON report payloads with attack surface metrics and severity tallies.
 
 ---
 
-## 🔍 Supported Vulnerability Categories (15/15)
+## 🔍 Supported Vulnerability Categories (15 Categories / 66 Sub-Rules)
 
-| Rule ID | Category Name | Default Severity | Default Confidence | Detection Strategy |
+The engine implements fine-grained pattern matching across 15 vulnerability categories comprising 66 distinct sub-rule signatures. Each sub-rule pattern independently defines its specific severity, confidence rating, and trigger description.
+
+| Sub-Rule IDs | Category Name | Severity Range | Confidence Range | Detection Strategy & Targeted Patterns |
 | :--- | :--- | :---: | :---: | :--- |
-| **BOF-001** | Buffer Overflow | `CRITICAL` | `HIGH` | Scans for unbounded string/memory copy operations (`strcpy`, `strcat`, `gets`, `sprintf`, `memcpy`). |
-| **INJ-001** | Command Injection | `CRITICAL` | `HIGH` | Detects process execution sinks (`system`, `popen`, `execve`, `execl`) receiving JNI input parameters. |
-| **FMT-001** | Format String | `HIGH` | `HIGH` | Identifies non-literal format strings passed to variadic output functions (`printf`, `syslog`, `__android_log_print`). |
-| **CRY-001** | Weak Cryptography | `HIGH` | `HIGH` | Detects legacy hashes (`MD5`, `SHA1`), ciphers (`DES`, `RC4`), and single-byte XOR rotation loops. |
-| **DBG-001** | Anti-Debugging | `MEDIUM` | `HIGH` | Identifies `ptrace` self-attach calls (`PTRACE_TRACEME`) and `/proc/self/status` TracerPid probes. |
-| **MEM-001** | Memory Management | `HIGH` | `HIGH` | Flags double-free (`free(p)` twice) and use-after-free conditions across execution paths. |
-| **JNI-001** | JNI Boundary Leaks | `MEDIUM` | `MEDIUM` | Tracks unreleased JNI string/array pointers (`GetStringUTFChars` without `ReleaseStringUTFChars`). |
-| **PRM-001** | File Permission Flaws | `MEDIUM` | `HIGH` | Detects world-readable/world-writable permission settings (`chmod 0777`, `mkdir 0777`, `umask 0`). |
-| **INT-001** | Integer Overflow | `HIGH` | `HIGH` | Flags inline arithmetic multiplication/addition inside dynamic allocation sizes (`malloc(n * size)`). |
-| **IPC-001** | Insecure IPC | `MEDIUM` | `MEDIUM` | Identifies unauthenticated local UNIX domain socket bindings (`AF_UNIX`) in shared `/tmp/` paths. |
-| **NUL-001** | Null Pointer Dereference | `MEDIUM` | `HIGH` | Detects dynamic allocation return values (`malloc`, `calloc`) used without null check guards. |
-| **RND-001** | Insecure Randomness | `LOW` | `HIGH` | Flags non-cryptographic PRNG calls (`rand()`, `srand(time(NULL))`) used for security tokens. |
-| **REF-001** | JNI Reflection Abuse | `LOW` | `MEDIUM` | Identifies dynamic Java class lookup and reflection calls from C layer (`FindClass`, `GetMethodID`). |
-| **FRD-001** | Anti-Root / Anti-Frida | `LOW` | `HIGH` | Detects probes for superuser binaries (`/system/xbin/su`) and `frida-server` UNIX socket ports. |
-| **STR-001** | String Obfuscation | `HIGH` | `HIGH` | Flags exposed plaintext API keys, secret tokens, and endpoint URLs in global `.rodata` tables. |
+| **BOF-001 – BOF-005** | Buffer Overflow | `MEDIUM` – `CRITICAL` | `MEDIUM` – `HIGH` | Unbounded memory/string operations: `gets` (`BOF-001`), `strcpy` (`BOF-002`), `strcat` (`BOF-003`), `sprintf` (`BOF-004`), `memcpy` (`BOF-005`). |
+| **INJ-001 – INJ-004** | Command Injection | `HIGH` – `CRITICAL` | `HIGH` | Process spawners receiving unsanitized input: `system` (`INJ-001`), `popen` (`INJ-002`), `execve` (`INJ-003`), `execl` (`INJ-004`). |
+| **FMT-001 – FMT-006** | Format String | `MEDIUM` – `HIGH` | `HIGH` | Non-literal format string sinks: `printf` (`FMT-001`), `sprintf` (`FMT-002`), `vprintf` (`FMT-003`), `vfprintf` (`FMT-004`), `syslog` (`FMT-005`), `__android_log_print` (`FMT-006`). |
+| **CRY-001 – CRY-007** | Weak Cryptography | `LOW` – `HIGH` | `LOW` – `HIGH` | Weak hashes/ciphers/loops: `MD5` (`CRY-001`), `SHA1` (`CRY-002`), `DES` (`CRY-003`), `AES-CBC` (`CRY-004`), `RC4` (`CRY-005`), `^=` XOR (`CRY-006`), `XOR` string (`CRY-007`). |
+| **DBG-001 – DBG-004** | Anti-Debugging | `LOW` – `MEDIUM` | `MEDIUM` – `HIGH` | Anti-analysis checks: `ptrace(PTRACE_TRACEME)` (`DBG-001`), `ptrace` (`DBG-002`), `/proc/self/status` (`DBG-003`), `TracerPid` (`DBG-004`). |
+| **MEM-001 – MEM-002** | Memory Management | `MEDIUM` – `HIGH` | `MEDIUM` | Memory deallocation/reallocation flaws: `free()` (`MEM-001`), `realloc()` (`MEM-002`). |
+| **JNI-001 – JNI-004** | JNI Boundary Leaks | `LOW` – `HIGH` | `HIGH` | JNI boundary lifecycle: `GetStringUTFChars` (`JNI-001`), `GetByteArrayElements` (`JNI-002`), `ReleaseStringUTFChars` (`JNI-003`), `ReleaseByteArrayElements` (`JNI-004`). |
+| **PRM-001 – PRM-007** | File Permission Flaws | `MEDIUM` – `HIGH` | `HIGH` | Overly permissive file/directory flags: `chmod 0777` (`PRM-001`), `chmod 0666` (`PRM-002`), `mkdir 0777` (`PRM-003`), `mkdir 0666` (`PRM-004`), `open 0666` (`PRM-005`), `open 0777` (`PRM-006`), `umask(0)` (`PRM-007`). |
+| **INT-001 – INT-003** | Integer Overflow | `HIGH` | `MEDIUM` | Arithmetic calculations inside allocation parameters: `malloc()` (`INT-001`), `calloc()` (`INT-002`), `realloc()` (`INT-003`). |
+| **IPC-001 – IPC-005** | Insecure IPC | `MEDIUM` – `HIGH` | `LOW` – `HIGH` | Unauthenticated local IPC endpoints: `socket(AF_UNIX)` (`IPC-001`), `bind` (`IPC-002`), `connect` (`IPC-003`), `/tmp/` paths (`IPC-004`), `AF_UNIX` (`IPC-005`). |
+| **NUL-001 – NUL-003** | Null Pointer Dereference | `MEDIUM` | `MEDIUM` | Dynamic allocation return values without null checks: `malloc` (`NUL-001`), `calloc` (`NUL-002`), `realloc` (`NUL-003`). |
+| **RND-001 – RND-003** | Insecure Randomness | `LOW` – `MEDIUM` | `HIGH` | Non-cryptographic PRNG usage: `rand()` (`RND-001`), `srand()` (`RND-002`), `srand(time(NULL))` (`RND-003`). |
+| **REF-001 – REF-005** | JNI Reflection Abuse | `HIGH` | `MEDIUM` | Reflective Java calls from C: `FindClass` (`REF-001`), `GetMethodID` (`REF-002`), `GetStaticMethodID` (`REF-003`), `CallObjectMethod` (`REF-004`), `CallVoidMethod` (`REF-005`). |
+| **FRD-001 – FRD-005** | Anti-Root / Anti-Frida | `LOW` | `MEDIUM` – `HIGH` | Environmental probes: `/system/bin/su` (`FRD-001`), `/system/xbin/su` (`FRD-002`), `frida-server` (`FRD-003`), port `27042` (`FRD-004`), `/proc/net/tcp` (`FRD-005`). |
+| **STR-001 – STR-006** | String Obfuscation | `MEDIUM` – `HIGH` | `HIGH` | Exposed plaintext strings & secrets: `http://` (`STR-001`), `api_key=` (`STR-002`), `password=` (`STR-003`), `bearer ` (`STR-004`), hex tokens (`STR-005`), `GLOBAL_SECRET_KEY` (`STR-006`). |
+
+### ⚙️ Pattern-Level Severity & Confidence Mechanics
+
+To avoid coarse, one-size-fits-all categorization, rules in `config/rules.yaml` utilize a two-level nested structure parsed into strongly-typed `Rule` and `RulePattern` dataclasses (`native_analysis.models.rule`):
+
+1. **Category Containers (`Rule`)**: Group related security checks under category identifiers (e.g., `BOF-001` for Buffer Overflow, `INJ-001` for Command Injection).
+2. **Sub-Rule Patterns (`RulePattern`)**: Define individual regex pattern signatures with specific sub-rule IDs (`BOF-001`, `BOF-002`, `BOF-004`), individual severity ratings (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`), and confidence levels (`HIGH`, `MEDIUM`, `LOW`).
+
+During AST scanning (`BaseAnalyzer._scan_function_with_patterns`), pattern matching evaluates each `RulePattern` object. When a pattern matches:
+- The resulting `Finding` object captures the precise sub-rule ID (e.g., `BOF-002` for `strcpy` vs `BOF-004` for `sprintf`) along with the pattern's dedicated severity and confidence.
+- Scope-level deduplication is tracked per `(sub_rule_id, function_name)`, allowing a single function to report distinct sub-rule findings (e.g., both `BOF-002` and `BOF-004`) while preventing duplicate findings for the same pattern.
 
 ---
 
@@ -195,3 +208,4 @@ The engine produces a standardized 3-Tier JSON report containing executive metri
 ## 📚 Technical Documentation
 
 For deeper details regarding module architecture, data flows, symbol resolution strategies, and decompiler fallback algorithms, consult [docs/NATIVE_ANALYSIS_ARCHITECTURE.md](docs/NATIVE_ANALYSIS_ARCHITECTURE.md).
+
