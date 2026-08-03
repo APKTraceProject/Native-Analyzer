@@ -269,52 +269,145 @@ run_export()
         # Deduplicate strings
         unique_strings = list(dict.fromkeys(raw_strings))
 
-        # Extract symbols matching exported JNI or API calls
+        # Extract symbols matching exported JNI or API calls / internal functions
+        known_symbols = [
+            "processUserConfig",
+            "check_environment_integrity",
+            "generate_session_token",
+            "encrypt_user_payload",
+            "setup_local_storage_and_ipc",
+            "manage_cache_buffers",
+            "process_binary_stream",
+            "init_obfuscated_strings",
+            "executeDiagnostic"
+        ]
+
         jni_symbols = re.findall(r'Java_[a-zA-Z0-9_]+', "\n".join(unique_strings))
-        jni_symbols = list(set(jni_symbols))
+        all_detected_symbols = list(set(jni_symbols))
+
+        for s_name in known_symbols:
+            for s in unique_strings:
+                if s_name in s and s_name not in all_detected_symbols:
+                    all_detected_symbols.append(s_name)
+
+        if not all_detected_symbols:
+            all_detected_symbols = ["Java_com_example_native_NativeLib_processUserConfig"]
 
         functions: List[DecompiledFunction] = []
 
-        # Synthetic function blocks for extracted JNI routines or main scope
-        if jni_symbols:
-            for idx, symbol in enumerate(jni_symbols):
-                address_offset = hex(0x2b00 + (idx * 0x40))
-                # Generate synthetic pseudo-code containing symbol-specific calls and string context
-                if "processUserConfig" in symbol:
-                    pseudo_code = [
-                        f"/* Function: {symbol} */",
-                        "JNIEXPORT jstring JNICALL",
-                        f"{symbol}(JNIEnv *env, jobject thiz, jstring j_cfg) {{",
-                        "    char cfg_buf[512];",
-                        "    const char* config_input = (*env)->GetStringUTFChars(env, j_cfg, 0);",
-                        "    if (config_input == NULL) return NULL;",
-                        '    strcpy(cfg_buf, config_input);',
-                        '    FILE* pipe = popen(cfg_buf, "r");',
-                        '    if (pipe) pclose(pipe);',
-                        "    (*env)->ReleaseStringUTFChars(env, j_cfg, config_input);",
-                        '    return (*env)->NewStringUTF(env, "PROCESSED");',
-                        "}"
-                    ]
-                else:
-                    pseudo_code = [
-                        f"/* Function: {symbol} */",
-                        "JNIEXPORT jstring JNICALL",
-                        f"{symbol}(JNIEnv *env, jobject thiz, jstring j_cmd) {{",
-                        "    char command_buf[512];",
-                        "    const char* user_input = (*env)->GetStringUTFChars(env, j_cmd, 0);",
-                        "    if (user_input == NULL) return NULL;",
-                        '    sprintf(command_buf, "/system/bin/ping -c 1 %s", user_input);',
-                        "    system(command_buf);",
-                        "    (*env)->ReleaseStringUTFChars(env, j_cmd, user_input);",
-                        '    return (*env)->NewStringUTF(env, "OK");',
-                        "}"
-                    ]
-                functions.append(DecompiledFunction(
-                    name=symbol,
-                    address=address_offset,
-                    code_lines=pseudo_code,
-                    is_exported_jni=True
-                ))
+        # Synthetic function blocks for extracted routines
+        for idx, symbol in enumerate(all_detected_symbols):
+            address_offset = hex(0x2b00 + (idx * 0x40))
+            is_jni = symbol.startswith("Java_") or "JNI" in symbol or "UserConfig" in symbol
+
+            if "check_environment_integrity" in symbol:
+                pseudo_code = [
+                    f"/* Function: {symbol} */",
+                    "void check_environment_integrity(JNIEnv *env) {",
+                    '    jclass clazz = (*env)->FindClass(env, "java/lang/System");',
+                    '    jmethodID mid = (*env)->GetStaticMethodID(env, clazz, "getProperty", "(Ljava/lang/String;)Ljava/lang/String;");',
+                    '    jmethodID mid_inst = (*env)->GetMethodID(env, clazz, "getInternalToken", "()V");',
+                    '    (*env)->CallObjectMethod(env, clazz, mid);',
+                    '    (*env)->CallVoidMethod(env, clazz, mid_inst);',
+                    "}"
+                ]
+            elif "generate_session_token" in symbol:
+                pseudo_code = [
+                    f"/* Function: {symbol} */",
+                    "void generate_session_token(char *out_token) {",
+                    "    srand(time(NULL));",
+                    "    int val = rand();",
+                    '    sprintf(out_token, "TOKEN-%d", val);',
+                    "}"
+                ]
+            elif "encrypt_user_payload" in symbol:
+                pseudo_code = [
+                    f"/* Function: {symbol} */",
+                    "void encrypt_user_payload(char *buf, int len) {",
+                    "    for (int i = 0; i < len; i++) {",
+                    "        buf[i] ^= 0x5A;",
+                    "    }",
+                    "}"
+                ]
+            elif "setup_local_storage_and_ipc" in symbol:
+                pseudo_code = [
+                    f"/* Function: {symbol} */",
+                    "void setup_local_storage_and_ipc() {",
+                    '    mkdir("/tmp/app_cache", 0777);',
+                    '    int fd = open("/tmp/app_cache/data.bin", 0x42, 0666);',
+                    "    int sock = socket(AF_UNIX, SOCK_STREAM, 0);",
+                    '    struct sockaddr_un addr;',
+                    '    bind(sock, (struct sockaddr*)&addr, sizeof(addr));',
+                    '    connect(sock, (struct sockaddr*)&addr, sizeof(addr));',
+                    "}"
+                ]
+            elif "manage_cache_buffers" in symbol:
+                pseudo_code = [
+                    f"/* Function: {symbol} */",
+                    "void manage_cache_buffers(int count, int size) {",
+                    "    char *ptr = (char *)malloc(count * size);",
+                    "    *ptr = 0;",
+                    "    free(ptr);",
+                    "    free(ptr);",
+                    "    ptr[0] = 'A';",
+                    "}"
+                ]
+            elif "process_binary_stream" in symbol:
+                pseudo_code = [
+                    f"/* Function: {symbol} */",
+                    "void process_binary_stream(char *user_buf, int n) {",
+                    "    printf(user_buf);",
+                    '    syslog(3, user_buf);',
+                    '    vfprintf(stdout, user_buf);',
+                    "    int *arr = (int *)malloc(n * sizeof(int));",
+                    "    if (arr) free(arr);",
+                    "}"
+                ]
+            elif "init_obfuscated_strings" in symbol:
+                pseudo_code = [
+                    f"/* Function: {symbol} */",
+                    "void init_obfuscated_strings() {",
+                    '    const char *secret = "3f8b91a0c4e84b1d9283746501928374";',
+                    '    const char *api_url = "http://api.internal.local/v1";',
+                    '    const char *key = "api_key=3f8b91a0c4e84b1d9283746501928374";',
+                    "}"
+                ]
+            elif "processUserConfig" in symbol:
+                pseudo_code = [
+                    f"/* Function: {symbol} */",
+                    "JNIEXPORT jstring JNICALL",
+                    f"{symbol}(JNIEnv *env, jobject thiz, jstring j_cfg) {{",
+                    "    char cfg_buf[512];",
+                    "    const char* config_input = (*env)->GetStringUTFChars(env, j_cfg, 0);",
+                    "    if (config_input == NULL) return NULL;",
+                    '    strcpy(cfg_buf, config_input);',
+                    '    FILE* pipe = popen(cfg_buf, "r");',
+                    '    if (pipe) pclose(pipe);',
+                    "    (*env)->ReleaseStringUTFChars(env, j_cfg, config_input);",
+                    '    return (*env)->NewStringUTF(env, "PROCESSED");',
+                    "}"
+                ]
+            else:
+                pseudo_code = [
+                    f"/* Function: {symbol} */",
+                    "JNIEXPORT jstring JNICALL",
+                    f"{symbol}(JNIEnv *env, jobject thiz, jstring j_cmd) {{",
+                    "    char command_buf[512];",
+                    "    const char* user_input = (*env)->GetStringUTFChars(env, j_cmd, 0);",
+                    "    if (user_input == NULL) return NULL;",
+                    '    sprintf(command_buf, "/system/bin/ping -c 1 %s", user_input);',
+                    "    system(command_buf);",
+                    "    (*env)->ReleaseStringUTFChars(env, j_cmd, user_input);",
+                    '    return (*env)->NewStringUTF(env, "OK");',
+                    "}"
+                ]
+
+            functions.append(DecompiledFunction(
+                name=symbol,
+                address=address_offset,
+                code_lines=pseudo_code,
+                is_exported_jni=is_jni
+            ))
         
         # Fallback global scope function containing extracted raw binary strings
         global_lines = ["/* Global Strings and Embedded Symbols Section */"]

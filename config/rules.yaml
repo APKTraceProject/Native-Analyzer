@@ -34,6 +34,8 @@ rules:
       - printf\s*\(\s*[^,"]+\s*\)
       - sprintf\s*\(\s*[^,]+,\s*[^,"]+\s*\)
       - vprintf\s*\(\s*[^,"]+\s*\)
+      - vfprintf\s*\(\s*[^,]+,\s*[^,"]+\s*\)
+      - syslog\s*\(\s*[^,]+,\s*[^,"]+\s*\)
       - __android_log_print\s*\([^,]+,\s*[^,]+,\s*[^,"]+\s*\)
     description: Non-literal format string passed directly to print variant.
 
@@ -95,7 +97,9 @@ rules:
       - chmod\s*\([^,]+,\s*0?777\)
       - chmod\s*\([^,]+,\s*0?666\)
       - mkdir\s*\([^,]+,\s*0?777\)
+      - mkdir\s*\([^,]+,\s*0?666\)
       - open\s*\([^,]+,\s*[^,]+,\s*0?666\)
+      - open\s*\([^,]+,\s*[^,]+,\s*0?777\)
       - umask\s*\(\s*0\s*\)
     description: World-writable or overly permissive file access modes detected.
 
@@ -106,6 +110,8 @@ rules:
     category: Integer Overflow
     patterns:
       - malloc\s*\(\s*[^)]*[*+]\s*[^)]*\)
+      - calloc\s*\(\s*[^)]*[*+]\s*[^)]*\)
+      - realloc\s*\([^,]+,\s*[^)]*[*+]\s*[^)]*\)
     description: Integer calculation used directly inside dynamic allocation size parameter.
 
   - id: IPC-001
@@ -117,6 +123,8 @@ rules:
       - socket\s*\(\s*AF_UNIX
       - bind\s*\(
       - connect\s*\(
+      - /tmp/
+      - AF_UNIX
     description: Local UNIX socket or IPC channel instantiated without authentication checks.
 
   - id: NUL-001
@@ -127,6 +135,7 @@ rules:
     patterns:
       - malloc
       - calloc
+      - realloc
     description: Dynamic memory allocated without subsequent null verification before use.
 
   - id: RND-001
@@ -148,6 +157,7 @@ rules:
     patterns:
       - FindClass
       - GetMethodID
+      - GetStaticMethodID
       - CallObjectMethod
       - CallVoidMethod
     description: Unvalidated Java reflection invoked through JNI environment.
@@ -175,4 +185,6 @@ rules:
       - "api_key="
       - "password="
       - "bearer "
+      - "[0-9a-fA-F]{32}"
+      - GLOBAL_SECRET_KEY
     description: Plaintext credentials or sensitive strings exposed in native binary strings table.
