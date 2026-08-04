@@ -66,15 +66,68 @@ class BaseAnalyzer(ABC):
 
     def _extract_target_variable(self, trigger_line: str, pattern: str) -> str:
         """
-        Extracts target variable/buffer parameter from C trigger statement.
+        Extracts target variable, buffer parameter, or static data string artifact from C trigger statement.
         """
-        match = re.search(r'\(\s*([^,)]+)', trigger_line)
-        if match:
-            var = match.group(1).strip()
-            # Clean up pointer symbols or casts
-            var = re.sub(r'^\*|^\([^\)]+\)', '', var).strip()
-            return var if var else "buf"
-        return "target_buffer"
+        if not trigger_line or not trigger_line.strip():
+            return "target_buffer"
+
+        # 1. Match regex pattern against trigger_line
+        pat_match = None
+        if pattern:
+            try:
+                pat_match = re.search(pattern, trigger_line)
+            except Exception:
+                pat_match = None
+
+        # 2. If Regex pattern contains capture groups and matched, bind target_variable to group(1)
+        if pat_match and pat_match.lastindex and pat_match.lastindex >= 1:
+            captured = pat_match.group(1)
+            if captured and captured.strip():
+                return captured.strip()
+
+        # 3. If pattern matches a specific static artifact or string literal (e.g. /system/bin/su, secrets, URLs, ports),
+        #    prefer returning the matched string content directly.
+        if pat_match:
+            matched_text = pat_match.group(0).strip()
+            if matched_text and (
+                matched_text.startswith("/") or
+                "http" in matched_text or
+                "api_key" in matched_text or
+                "password" in matched_text or
+                "bearer" in matched_text or
+                matched_text in ["TracerPid", "GLOBAL_SECRET_KEY", "frida-server", "27042", "AF_UNIX"] or
+                re.match(r'^[0-9a-fA-F]{32}$', matched_text)
+            ):
+                return matched_text
+
+        # 4. Standard C function call parameter extraction: e.g. func(var, ...)
+        arg_match = re.search(r'\(\s*([^,)]+)', trigger_line)
+        if arg_match:
+            var = arg_match.group(1).strip()
+            # Clean up pointer dereference (*), address-of (&), or C type casts e.g. (char*)
+            var = re.sub(r'^\*|^\&|^\([^\)]+\)\s*', '', var).strip()
+            if var and var != "void":
+                return var
+
+        # 5. Variable assignment LHS: e.g. var = rand() or buf[i] ^= 0x5A
+        assign_match = re.search(r'([a-zA-Z_][a-zA-Z0-9_]*(?:\[[^\]]+\])?)\s*(?:=|\^=|\+=|-=|\*=)', trigger_line)
+        if assign_match:
+            var = assign_match.group(1).strip()
+            if var:
+                return var
+
+        # 6. Fallback to matched text of pattern
+        if pat_match:
+            matched_text = pat_match.group(0).strip()
+            if matched_text:
+                return matched_text
+
+        # 7. Fallback to quoted string literal in trigger_line
+        str_match = re.search(r'"([^"]+)"', trigger_line)
+        if str_match:
+            return str_match.group(1).strip()
+
+        return "buf"
 
     def _scan_function_with_patterns(
         self,

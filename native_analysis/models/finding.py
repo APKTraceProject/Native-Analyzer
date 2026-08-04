@@ -47,7 +47,7 @@ class Finding:
         confidence (str): Confidence level ('HIGH', 'MEDIUM', 'LOW').
         target_file (str): Path to target native library.
         location (Location): Location object specifying function address and line offset.
-        target_variable (str): Name of affected variable or buffer.
+        target_variable (str): Name of affected variable, buffer, or extracted static data string artifact.
         trigger_line (str): Exact code statement triggering the vulnerability alert.
         flow_analysis (FlowAnalysis): Data flow context object detailing source to sink.
     """
