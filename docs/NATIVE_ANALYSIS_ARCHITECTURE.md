@@ -11,6 +11,8 @@ The architecture comprises a modular pipeline:
 4. **Abstract Rule Engine & Analyzers** (`BaseAnalyzer` + 15 specialized vulnerability classes)
 5. **JSON Report Generator** (`JsonReporter`)
 
+7. **Shared Analysis Context Layer** (`AnalysisContext` & `ContextBuilder`)
+
 ---
 
 ## Technical Pipeline Architecture
@@ -22,16 +24,17 @@ The architecture comprises a modular pipeline:
                  │
                  ▼
  ┌──────────────────────────────────────────────┐
- │ GhidraParser / ELF Header Ingestion          │
- │ - Computes SHA-256 Digest                     │
+ │ ContextBuilder / AnalysisContext Pipeline   │
+ │ - Computes SHA-256 Digest & Header Info      │
  │ - Detects ABI Architecture (ARM64, x86, etc.) │
- │ - Inspects Security Controls (Canary/PIE/NX) │
+ │ - Pre-extracts Hardening Flags & Symbols     │
+ │ - Populates String Artifacts & Code Scope    │
  └──────────────┬───────────────────────────────┘
                 │
         ┌───────┴────────────────────────┐
-        │ Primary Mode Available?        │
+        │ Decompiler & Parser Pipeline   │
         └───────┬────────────────┬───────┘
-                │ Yes            │ No / Fallback
+                │ Ghidra         │ Fallback Parser
                 ▼                ▼
   ┌───────────────────┐  ┌────────────────────────────────────┐
   │ Ghidra Headless   │  │ Cross-Platform Fallback Parser     │
@@ -44,7 +47,7 @@ The architecture comprises a modular pipeline:
                            │
                            ▼
             ┌─────────────────────────────┐
-            │ ParsedBinary Data Structure │
+            │ Centralized AnalysisContext │
             └──────────────┬──────────────┘
                            │
                            ▼
@@ -204,6 +207,17 @@ The architecture comprises a modular pipeline:
   - `flow_analysis` (dict): Taint flow tracking object containing `source`, `sink`, and `trigger_line_number`.
   - `total_matches` (int): Total count of matches aggregated into this finding (defaults to 1).
   - `matches` (list[dict]): Array of match occurrences containing `match_id` (e.g. `FIND-02-1`), `line_number`, `target_variable`, and `trigger_line`.
+
+### 5. Shared Analysis Context Layer (`AnalysisContext` & `ContextBuilder`)
+- **Centralized Pre-Extraction**: `ContextBuilder` initializes an `AnalysisContext` dataclass once during scanner initialization.
+- **Pre-Extracted Artifacts**:
+  - `binary_info`: Basic target file metadata (file name, relative path, ABI architecture, SHA-256 hash).
+  - `hardening_flags`: ELF exploit mitigations (`stack_canary`, `nx_bit`, `pie_enabled`, `relro`).
+  - `string_artifacts`: Static ASCII/UTF-8 string tables with length and Shannon entropy annotations.
+  - `symbol_table`: Exported JNI functions, function names, and dynamic symbols.
+  - `code_scope`: Decompiled C function line mappings.
+  - `parsed_binary`: Single reference to the parsed binary AST.
+- **O(1) Memory Lookup**: All downstream analyzers query `self.context` directly without re-reading or re-parsing the target binary.
 
 ---
 

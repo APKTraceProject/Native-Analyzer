@@ -9,6 +9,7 @@ from native_analysis.models.finding import Finding, FlowAnalysis
 from native_analysis.models.location import Location
 from native_analysis.models.parsed_binary import ParsedBinary, DecompiledFunction, BinaryMitigations
 from native_analysis.models.rule import Rule, RulePattern
+from native_analysis.models.context import AnalysisContext
 
 __all__ = [
     "Finding",
@@ -19,4 +20,5 @@ __all__ = [
     "BinaryMitigations",
     "Rule",
     "RulePattern",
+    "AnalysisContext",
 ]

@@ -9,8 +9,10 @@ from typing import List, Dict, Any, Tuple, Optional
 from native_analysis.models.parsed_binary import ParsedBinary
 from native_analysis.models.finding import Finding
 from native_analysis.models.rule import Rule
+from native_analysis.models.context import AnalysisContext
 from native_analysis.parsers.ghidra_parser import GhidraParser
 from native_analysis.core.config_loader import ConfigLoader
+from native_analysis.core.context_builder import ContextBuilder
 
 # Import all 15 Analyzers
 from native_analysis.analyzers.buffer_overflow import BufferOverflowAnalyzer
@@ -117,11 +119,17 @@ class ScanEngine:
                 file_name = os.path.basename(target_so_path)
                 apk_relative_path = f"standalone/{file_name}"
 
-            # Step 1: Parse ELF binary and reconstruct functions
-            parsed_binary = self.parser.parse(target_so_path, apk_relative_path=apk_relative_path)
+            # Step 1: Pre-extract binary artifacts into a single shared AnalysisContext
+            context_builder = ContextBuilder(
+                target_path=target_so_path,
+                parser=self.parser,
+                apk_relative_path=apk_relative_path
+            )
+            context = context_builder.build()
+            parsed_binary = context.parsed_binary
             all_findings: List[Finding] = []
 
-            # Step 2: Iterate registered analyzers and evaluate rules
+            # Step 2: Iterate registered analyzers and evaluate rules using shared AnalysisContext
             for rule_id, analyzer_cls in self.ANALYZER_MAPPING.items():
                 rule = self.rules_by_id.get(rule_id)
                 if not rule:
@@ -135,7 +143,7 @@ class ScanEngine:
                         patterns=[]
                     )
 
-                analyzer_inst = analyzer_cls(rule)
+                analyzer_inst = analyzer_cls(rule, context=context)
                 findings = analyzer_inst.analyze(parsed_binary)
                 all_findings.extend(findings)
 
@@ -221,4 +229,17 @@ class ScanEngine:
             final_findings.append(base_finding)
 
         return final_findings
+
+    def run(
+        self,
+        target_so_path: str,
+        apk_relative_path: Optional[str] = None
+    ) -> Tuple[ParsedBinary, List[Finding]]:
+        """
+        Runs full analysis pipeline by building AnalysisContext and dispatching analyzers.
+        """
+        return self.scan_target(target_so_path, apk_relative_path=apk_relative_path)
+
+
+Engine = ScanEngine
 

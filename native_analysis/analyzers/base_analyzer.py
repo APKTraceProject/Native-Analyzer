@@ -9,6 +9,7 @@ from native_analysis.models.rule import Rule
 from native_analysis.models.parsed_binary import ParsedBinary, DecompiledFunction
 from native_analysis.models.finding import Finding, FlowAnalysis
 from native_analysis.models.location import Location
+from native_analysis.models.context import AnalysisContext
 
 RULE_PREFIX_MAP = {
     "BOF": ("CWE-120", "MASVS-CODE-2"),
@@ -34,17 +35,19 @@ class BaseAnalyzer(ABC):
     taint flow generation, and scope-based deduplication.
     """
 
-    def __init__(self, rule: Rule):
+    def __init__(self, rule: Rule, context: Optional[AnalysisContext] = None):
         """
-        Initialize analyzer with rule configuration.
+        Initialize analyzer with rule configuration and optional shared analysis context.
         
         Args:
             rule: Rule object defining ID, severity, category, patterns.
+            context: Optional shared AnalysisContext containing pre-extracted binary artifacts.
         """
         self.rule = rule
+        self.context = context
 
     @abstractmethod
-    def analyze(self, binary: ParsedBinary) -> List[Finding]:
+    def analyze(self, binary: Optional[ParsedBinary] = None) -> List[Finding]:
         """
         Executes static analysis on parsed binary.
         Must be implemented by child vulnerability analyzers.
@@ -164,17 +167,26 @@ class BaseAnalyzer(ABC):
 
     def _scan_function_with_patterns(
         self,
-        binary: ParsedBinary,
+        binary: Optional[ParsedBinary] = None,
         rule_override: Optional[Rule] = None
     ) -> List[Finding]:
         """
         Standardized scanner iterating through functions and matching rule patterns.
         Extracts fine-grained sub-rule IDs, severity, and confidence from matched RulePattern objects.
         
-        @param binary ParsedBinary payload with decompiled C code and metadata.
+        @param binary Optional ParsedBinary payload with decompiled C code and metadata.
         @param rule_override Optional custom Rule object overriding self.rule.
         @return List[Finding] Generated vulnerability findings.
         """
+        if binary is None and self.context is not None:
+            binary = self.context.parsed_binary
+
+        if binary is None:
+            return []
+
+        if self.context and self.context.code_scope and not binary.functions_code_scope:
+            binary.functions_code_scope = dict(self.context.code_scope)
+
         target_rule = rule_override if rule_override else self.rule
         findings: List[Finding] = []
         seen_function_scopes = set()
