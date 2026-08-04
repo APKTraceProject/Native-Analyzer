@@ -235,7 +235,6 @@ The scanner outputs structured JSON results adhering to the following schema:
       "rule_id": "BOF-002",
       "severity": "CRITICAL",
       "confidence": "HIGH",
-      "target_file": "standalone/libnative.so",
       "location": {
         "function_name": "Java_com_example_app_NativeLib_processInput",
         "symbol_address": "0x00002b20",
@@ -258,7 +257,6 @@ The scanner outputs structured JSON results adhering to the following schema:
       "rule_id": "INJ-001",
       "severity": "CRITICAL",
       "confidence": "HIGH",
-      "target_file": "standalone/libnative.so",
       "location": {
         "function_name": "Java_com_example_app_NativeLib_executeCmd",
         "symbol_address": "0x00002b40",

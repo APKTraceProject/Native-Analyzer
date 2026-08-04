@@ -96,7 +96,6 @@ class JSONReporter:
                     vulnerable_jni_funcs.add(f.location.function_name)
 
                 f_dict = f.to_dict()
-                f_dict["target_file"] = binary.apk_relative_path
                 findings_json.append(f_dict)
 
             vulnerable_jni_count = len(vulnerable_jni_funcs)

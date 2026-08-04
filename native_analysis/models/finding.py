@@ -45,7 +45,6 @@ class Finding:
         rule_id (str): Rule signature identifier (e.g., 'INJ-001').
         severity (str): Severity rating ('CRITICAL', 'HIGH', 'MEDIUM', 'LOW').
         confidence (str): Confidence level ('HIGH', 'MEDIUM', 'LOW').
-        target_file (str): Path to target native library.
         location (Location): Location object specifying function address and line offset.
         target_variable (str): Name of affected variable, buffer, or extracted static data string artifact.
         trigger_line (str): Exact code statement triggering the vulnerability alert.
@@ -55,7 +54,6 @@ class Finding:
     rule_id: str
     severity: str
     confidence: str
-    target_file: str
     location: Location
     target_variable: str
     trigger_line: str
@@ -72,7 +70,6 @@ class Finding:
             "rule_id": self.rule_id,
             "severity": self.severity,
             "confidence": self.confidence,
-            "target_file": self.target_file,
             "location": self.location.to_dict(),
             "target_variable": self.target_variable,
             "trigger_line": self.trigger_line,

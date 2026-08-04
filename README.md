@@ -178,7 +178,6 @@ The engine produces a standardized 3-Tier JSON report containing executive metri
           "rule_id": "INJ-001",
           "severity": "CRITICAL",
           "confidence": "HIGH",
-          "target_file": "standalone/libnative.so",
           "location": {
             "function_name": "Java_com_example_app_NativeLib_executeCmd",
             "symbol_address": "0x00002b40",

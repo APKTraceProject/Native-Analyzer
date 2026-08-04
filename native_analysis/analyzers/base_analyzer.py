@@ -234,7 +234,6 @@ class BaseAnalyzer(ABC):
                             rule_id=sub_rule_id,
                             severity=sev,
                             confidence=conf,
-                            target_file=binary.apk_relative_path,
                             location=loc,
                             target_variable=var_name,
                             trigger_line=line.strip(),
