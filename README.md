@@ -172,6 +172,20 @@ The engine produces a standardized 3-Tier JSON report containing executive metri
           "vulnerable_jni_functions": 15
         }
       },
+      "functions_code_scope": {
+        "Java_com_example_app_NativeLib_executeCmd": [
+          "/* Function: Java_com_example_app_NativeLib_executeCmd */",
+          "JNIEXPORT jstring JNICALL",
+          "Java_com_example_app_NativeLib_executeCmd(JNIEnv *env, jobject thiz, jstring j_cmd) {",
+          "    char command_buf[512];",
+          "    const char* user_input = (*env)->GetStringUTFChars(env, j_cmd, 0);",
+          "    sprintf(command_buf, \"/system/bin/ping -c 1 %s\", user_input);",
+          "    system(command_buf);",
+          "    (*env)->ReleaseStringUTFChars(env, j_cmd, user_input);",
+          "    return (*env)->NewStringUTF(env, \"OK\");",
+          "}"
+        ]
+      },
       "findings": [
         {
           "finding_id": "FIND-01",
@@ -181,19 +195,15 @@ The engine produces a standardized 3-Tier JSON report containing executive metri
           "location": {
             "function_name": "Java_com_example_app_NativeLib_executeCmd",
             "symbol_address": "0x00002b40",
-            "line_number": 34,
+            "line_number": 7,
             "is_exported_jni": true
           },
           "target_variable": "command_buf",
           "trigger_line": "system(command_buf);",
           "flow_analysis": {
-            "source": "JNI String parameter 'user_input' passed from Java layer at line 28",
-            "sink": "Unsanitized command execution via system() call at line 34",
-            "data_path": [
-              "/* 0x2b10 | line 28 */ const char* user_input = (*env)->GetStringUTFChars(env, j_cmd, 0);",
-              "/* 0x2b28 | line 31 */ sprintf(command_buf, \"/system/bin/ping -c 1 %s\", user_input);",
-              "/* 0x2b40 | line 34 */ system(command_buf); // [TRIGGER]"
-            ]
+            "source": "JNI String parameter 'user_input' passed from Java layer at line 5",
+            "sink": "Unsanitized command execution via system() call at line 7",
+            "trigger_line_number": 7
           }
         },
         {
@@ -212,9 +222,7 @@ The engine produces a standardized 3-Tier JSON report containing executive metri
           "flow_analysis": {
             "source": "Hardcoded static binary string artifact",
             "sink": "Unsanitized reference via pattern '/system/bin/su' at line 10",
-            "data_path": [
-              "/* N/A | line 10 */ if (access(\"/system/bin/su\", F_OK) == 0) // [TRIGGER]"
-            ]
+            "trigger_line_number": 10
           },
           "total_matches": 2,
           "matches": [

@@ -262,6 +262,11 @@ run_export()
             )
             functions.append(decomp)
 
+        code_scope = {
+            f.name: f.code_lines for f in functions
+            if f.name != "global_strings_section" and not f.name.endswith("_section") and not f.name.endswith("_strings")
+        }
+
         return ParsedBinary(
             file_name=file_name,
             apk_relative_path=apk_relative_path,
@@ -270,7 +275,8 @@ run_export()
             mitigations=mitigations,
             functions=functions,
             strings=raw_data.get("strings", []),
-            exported_jni_functions=exported_jni
+            exported_jni_functions=exported_jni,
+            functions_code_scope=code_scope
         )
 
     def _run_fallback_analysis(
@@ -467,6 +473,11 @@ run_export()
             is_exported_jni=False
         ))
 
+        code_scope = {
+            f.name: f.code_lines for f in functions
+            if f.name != "global_strings_section" and not f.name.endswith("_section") and not f.name.endswith("_strings")
+        }
+
         return ParsedBinary(
             file_name=file_name,
             apk_relative_path=apk_relative_path,
@@ -475,5 +486,6 @@ run_export()
             mitigations=mitigations,
             functions=functions,
             strings=unique_strings,
-            exported_jni_functions=jni_symbols
+            exported_jni_functions=jni_symbols,
+            functions_code_scope=code_scope
         )

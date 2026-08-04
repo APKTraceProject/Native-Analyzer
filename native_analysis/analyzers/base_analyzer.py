@@ -163,6 +163,14 @@ class BaseAnalyzer(ABC):
 
         patterns = target_rule.patterns if isinstance(target_rule.patterns, list) else []
         for func in binary.functions:
+            is_string_sec_func = (
+                func.name == "global_strings_section" or
+                func.name.endswith("_section") or
+                func.name.endswith("_strings")
+            )
+            if not is_string_sec_func:
+                binary.functions_code_scope[func.name] = func.code_lines
+
             for idx, line in enumerate(func.code_lines):
                 for pat_obj in patterns:
                     # Extract pattern string, sub-rule ID, severity, confidence
@@ -192,22 +200,13 @@ class BaseAnalyzer(ABC):
                     if pat_str and re.search(pat_str, line):
                         # Mark scope as analyzed to enforce single finding per sub-rule per function
                         seen_function_scopes.add(scope_key)
-                        
-                        # Extract 20-line window around trigger statement
-                        context_path = self._extract_context_window(
-                            code_lines=func.code_lines,
-                            trigger_index=idx,
-                            address=func.address
-                        )
 
                         var_name = self._extract_target_variable(line, pat_str)
                         line_no = idx + 1
 
                         # Determine if target section represents static data or global string section
                         is_string_sec = (
-                            func.name == "global_strings_section" or
-                            func.name.endswith("_section") or
-                            func.name.endswith("_strings") or
+                            is_string_sec_func or
                             self._is_aggregatable(sub_rule_id)
                         )
 
@@ -245,7 +244,7 @@ class BaseAnalyzer(ABC):
                         flow = FlowAnalysis(
                             source=source_desc,
                             sink=sink_desc,
-                            data_path=context_path
+                            trigger_line_number=line_no
                         )
 
                         finding = Finding(

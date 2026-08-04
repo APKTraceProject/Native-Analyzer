@@ -67,6 +67,7 @@ class ParsedBinary:
         functions (List[DecompiledFunction]): Decompiled functions list.
         strings (List[str]): Global read-only string section literals.
         exported_jni_functions (List[str]): List of exported JNI symbol names.
+        functions_code_scope (Dict[str, List[str]]): Map of function names to their disassembled code lines.
     """
     file_name: str
     apk_relative_path: str
@@ -76,4 +77,5 @@ class ParsedBinary:
     functions: List[DecompiledFunction] = field(default_factory=list)
     strings: List[str] = field(default_factory=list)
     exported_jni_functions: List[str] = field(default_factory=list)
+    functions_code_scope: Dict[str, List[str]] = field(default_factory=dict)
 

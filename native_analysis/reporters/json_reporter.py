@@ -106,11 +106,18 @@ class JSONReporter:
                 if f.name != "global_strings_section" and not f.name.endswith("_section") and not f.name.endswith("_strings")
             ]
 
+            functions_code_scope = binary.functions_code_scope
+            if not functions_code_scope:
+                functions_code_scope = {
+                    f.name: f.code_lines for f in real_functions
+                }
+
             target_entry = {
                 "file_name": binary.file_name,
                 "apk_relative_path": binary.apk_relative_path,
                 "abi_architecture": binary.abi_architecture,
                 "sha256": binary.sha256,
+                "functions_code_scope": functions_code_scope,
                 "target_summary": {
                     "file_findings_count": len(findings),
                     "by_severity": file_sev,

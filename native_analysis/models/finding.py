@@ -17,11 +17,11 @@ class FlowAnalysis:
     Attributes:
         source (str): Description of data entry point or source variable.
         sink (str): Description of vulnerability sink call.
-        data_path (List[str]): Array of 20-line formatted C context lines illustrating data flow.
+        trigger_line_number (int): Specific line number in the parent function scope.
     """
     source: str
     sink: str
-    data_path: List[str] = field(default_factory=list)
+    trigger_line_number: int = 0
 
     def to_dict(self) -> Dict[str, Any]:
         """
@@ -32,7 +32,7 @@ class FlowAnalysis:
         return {
             "source": self.source,
             "sink": self.sink,
-            "data_path": self.data_path
+            "trigger_line_number": self.trigger_line_number
         }
 
 @dataclass

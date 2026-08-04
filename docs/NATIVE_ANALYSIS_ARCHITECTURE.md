@@ -197,7 +197,9 @@ The architecture comprises a modular pipeline:
   - **Aggregatable Rules**: Static binary data and string artifacts (`STR-*`, `FRD-*`, `DBG-*`, and static file paths under `IPC-004`).
   - **Non-Aggregatable Rules**: Control-flow, taint-analysis, and execution vulnerabilities (`JNI-*`, `BOF-*`, `INJ-*`, `REF-*`, `RND-*`, `CRY-*`, `PRM-*`, `INT-*`, `MEM-*`, `FMT-*`, `IPC-001`, `IPC-002`, `IPC-003`). Each occurrence remains a distinct standalone `Finding` object.
 - **5-Tuple Composite Grouping Key**: Merges Aggregatable Rules into a single `Finding` object ONLY if all 5 criteria match: `rule_id`, `severity`, `confidence`, `location.function_name`, and `flow_analysis.source`.
-- **Finding Schema Fields**:
+- **Target & Finding Schema Fields**:
+  - `functions_code_scope` (dict[str, list[str]]): Target-level map of function names to their decompiled code lines.
+  - `flow_analysis` (dict): Taint flow tracking object containing `source`, `sink`, and `trigger_line_number`.
   - `total_matches` (int): Total count of matches aggregated into this finding (defaults to 1).
   - `matches` (list[dict]): Array of match occurrences containing `match_id` (e.g. `FIND-02-1`), `line_number`, `target_variable`, and `trigger_line`.
 
@@ -209,14 +211,8 @@ The scanner outputs structured JSON results adhering to the following schema:
 
 ```json
 {
-  "scan_metadata": {
-    "target_binary": "libnative.so",
-    "apk_relative_path": "standalone/libnative.so",
-    "architecture": "arm64-v8a",
-    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "scan_timestamp": "2026-08-03T10:00:00Z"
-  },
   "summary": {
+    "total_targets_scanned": 1,
     "total_findings": 15,
     "by_severity": {
       "CRITICAL": 3,
@@ -235,62 +231,80 @@ The scanner outputs structured JSON results adhering to the following schema:
       "Format String": 1
     }
   },
-  "findings": [
+  "targets": [
     {
-      "finding_id": "FIND-01",
-      "rule_id": "BOF-002",
-      "severity": "CRITICAL",
-      "confidence": "HIGH",
-      "location": {
-        "function_name": "Java_com_example_app_NativeLib_processInput",
-        "symbol_address": "0x00002b20",
-        "line_number": 15,
-        "is_exported_jni": true
-      },
-      "target_variable": "dest_buf",
-      "trigger_line": "strcpy(dest_buf, user_str);",
-      "flow_analysis": {
-        "source": "JNI or internal parameter passed to function 'Java_com_example_app_NativeLib_processInput' at line 14",
-        "sink": "Unsanitized call via pattern 'strcpy\\s*\\(' at line 15",
-        "data_path": [
-          "/* 0x2b10 | line 14 */ const char* user_str = (*env)->GetStringUTFChars(env, j_str, 0);",
-          "/* 0x2b20 | line 15 */ strcpy(dest_buf, user_str); // [TRIGGER]"
-        ]
-      }
-    },
-    {
-      "finding_id": "FIND-02",
-      "rule_id": "FRD-001",
-      "severity": "HIGH",
-      "confidence": "HIGH",
-      "location": {
-        "function_name": "N/A (Static Data Section)",
-        "symbol_address": "N/A",
-        "line_number": 10,
-        "is_exported_jni": false
-      },
-      "target_variable": "/system/bin/su",
-      "trigger_line": "if (access(\"/system/bin/su\", F_OK) == 0)",
-      "flow_analysis": {
-        "source": "Hardcoded static binary string artifact",
-        "sink": "Unsanitized reference via pattern '/system/bin/su' at line 10",
-        "data_path": [
-          "/* N/A | line 10 */ if (access(\"/system/bin/su\", F_OK) == 0) // [TRIGGER]"
+      "file_name": "libnative.so",
+      "apk_relative_path": "standalone/libnative.so",
+      "abi_architecture": "arm64-v8a",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "functions_code_scope": {
+        "Java_com_example_app_NativeLib_processInput": [
+          "/* Function: Java_com_example_app_NativeLib_processInput */",
+          "JNIEXPORT jstring JNICALL",
+          "Java_com_example_app_NativeLib_processInput(JNIEnv *env, jobject thiz, jstring j_str) {",
+          "    char dest_buf[512];",
+          "    const char* user_str = (*env)->GetStringUTFChars(env, j_str, 0);",
+          "    strcpy(dest_buf, user_str);",
+          "    return (*env)->NewStringUTF(env, \"OK\");",
+          "}"
         ]
       },
-      "total_matches": 2,
-      "matches": [
+      "target_summary": {
+        "file_findings_count": 15
+      },
+      "findings": [
         {
-          "match_id": "FIND-02-1",
-          "line_number": 10,
-          "target_variable": "/system/bin/su",
-          "trigger_line": "if (access(\"/system/bin/su\", F_OK) == 0)"
+          "finding_id": "FIND-01",
+          "rule_id": "BOF-002",
+          "severity": "CRITICAL",
+          "confidence": "HIGH",
+          "location": {
+            "function_name": "Java_com_example_app_NativeLib_processInput",
+            "symbol_address": "0x00002b20",
+            "line_number": 6,
+            "is_exported_jni": true
+          },
+          "target_variable": "dest_buf",
+          "trigger_line": "strcpy(dest_buf, user_str);",
+          "flow_analysis": {
+            "source": "JNI or internal parameter passed to function 'Java_com_example_app_NativeLib_processInput' at line 5",
+            "sink": "Unsanitized call via pattern 'strcpy' at line 6",
+            "trigger_line_number": 6
+          }
         },
         {
-          "match_id": "FIND-02-2",
-          "line_number": 22,
-          "target_variable": "/system/xbin/su",
-          "trigger_line": "if (access(\"/system/xbin/su\", F_OK) == 0)"
+          "finding_id": "FIND-02",
+          "rule_id": "FRD-001",
+          "severity": "HIGH",
+          "confidence": "HIGH",
+          "location": {
+            "function_name": "N/A (Static Data Section)",
+            "symbol_address": "N/A",
+            "line_number": 10,
+            "is_exported_jni": false
+          },
+          "target_variable": "/system/bin/su",
+          "trigger_line": "if (access(\"/system/bin/su\", F_OK) == 0)",
+          "flow_analysis": {
+            "source": "Hardcoded static binary string artifact",
+            "sink": "Unsanitized reference via pattern '/system/bin/su' at line 10",
+            "trigger_line_number": 10
+          },
+          "total_matches": 2,
+          "matches": [
+            {
+              "match_id": "FIND-02-1",
+              "line_number": 10,
+              "target_variable": "/system/bin/su",
+              "trigger_line": "if (access(\"/system/bin/su\", F_OK) == 0)"
+            },
+            {
+              "match_id": "FIND-02-2",
+              "line_number": 22,
+              "target_variable": "/system/xbin/su",
+              "trigger_line": "if (access(\"/system/xbin/su\", F_OK) == 0)"
+            }
+          ]
         }
       ]
     }
