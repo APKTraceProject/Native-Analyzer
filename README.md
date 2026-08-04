@@ -41,7 +41,7 @@
 1. **Ingestion & Metadata Extraction**: Reads raw binary headers, computes SHA-256 digests, and detects binary exploit mitigations (Stack Canaries, NX Bit, PIE, RELRO).
 2. **Decompilation Pipeline**: Invokes Ghidra Headless decompilation or executes the zero-dependency fallback heuristic parser to reconstruct C function bodies and `.rodata` string tables.
 3. **AST Pattern Matching & Flow Context**: Runs 15 specialized static analyzers across decompiled code blocks using fine-grained, pattern-specific sub-rule IDs (e.g., `BOF-001` for `gets()`, `BOF-002` for `strcpy()`, `BOF-004` for `sprintf()`).
-4. **Scope Deduplication**: Deduplicates findings per sub-rule ID and function scope, then re-indexes sequential finding identifiers (`FIND-01`, `FIND-02`, ...).
+4. **Selective Finding Aggregation**: Aggregates static binary data & string artifact findings (`STR-*`, `FRD-*`, `DBG-*`, `IPC-004`) sharing identical 5-tuple keys (`rule_id`, `severity`, `confidence`, `location.function_name`, `flow_analysis.source`) into composite findings with `matches` and `total_matches` counts, while keeping execution-path vulnerabilities (`JNI-*`, `BOF-*`, `INJ-*`, etc.) strictly independent.
 5. **Report Serialization**: Produces standardized 3-tier JSON report payloads with attack surface metrics and severity tallies.
 
 ---
@@ -77,7 +77,7 @@ To avoid coarse, one-size-fits-all categorization, rules in `config/rules.yaml` 
 
 During AST scanning (`BaseAnalyzer._scan_function_with_patterns`), pattern matching evaluates each `RulePattern` object. When a pattern matches:
 - The resulting `Finding` object captures the precise sub-rule ID (e.g., `BOF-002` for `strcpy` vs `BOF-004` for `sprintf`) along with the pattern's dedicated severity and confidence.
-- Scope-level deduplication is tracked per `(sub_rule_id, function_name)`, allowing a single function to report distinct sub-rule findings (e.g., both `BOF-002` and `BOF-004`) while preventing duplicate findings for the same pattern.
+- Selective finding aggregation groups static binary data & string artifact findings (`STR-*`, `FRD-*`, `DBG-*`, `IPC-004`) sharing identical 5-tuple keys (`rule_id`, `severity`, `confidence`, `location.function_name`, `flow_analysis.source`) into composite findings with `matches` arrays and `total_matches` counts, while keeping control-flow and execution vulnerabilities (`JNI-*`, `BOF-*`, `INJ-*`, etc.) strictly independent.
 
 ---
 
@@ -195,6 +195,42 @@ The engine produces a standardized 3-Tier JSON report containing executive metri
               "/* 0x2b40 | line 34 */ system(command_buf); // [TRIGGER]"
             ]
           }
+        },
+        {
+          "finding_id": "FIND-02",
+          "rule_id": "FRD-001",
+          "severity": "HIGH",
+          "confidence": "HIGH",
+          "location": {
+            "function_name": "N/A (Static Data Section)",
+            "symbol_address": "N/A",
+            "line_number": 10,
+            "is_exported_jni": false
+          },
+          "target_variable": "/system/bin/su",
+          "trigger_line": "if (access(\"/system/bin/su\", F_OK) == 0)",
+          "flow_analysis": {
+            "source": "Hardcoded static binary string artifact",
+            "sink": "Unsanitized reference via pattern '/system/bin/su' at line 10",
+            "data_path": [
+              "/* N/A | line 10 */ if (access(\"/system/bin/su\", F_OK) == 0) // [TRIGGER]"
+            ]
+          },
+          "total_matches": 2,
+          "matches": [
+            {
+              "match_id": "FIND-02-1",
+              "line_number": 10,
+              "target_variable": "/system/bin/su",
+              "trigger_line": "if (access(\"/system/bin/su\", F_OK) == 0)"
+            },
+            {
+              "match_id": "FIND-02-2",
+              "line_number": 22,
+              "target_variable": "/system/xbin/su",
+              "trigger_line": "if (access(\"/system/xbin/su\", F_OK) == 0)"
+            }
+          ]
         }
       ]
     }

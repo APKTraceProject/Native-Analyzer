@@ -129,6 +129,21 @@ class BaseAnalyzer(ABC):
 
         return "buf"
 
+    @staticmethod
+    def _is_aggregatable(rule_id: str) -> bool:
+        """
+        Determines if a rule ID belongs to aggregatable static artifact categories.
+        Aggregatable categories: STR-*, FRD-*, DBG-*, and IPC-004.
+        """
+        if not rule_id:
+            return False
+        return (
+            rule_id.startswith("STR-") or
+            rule_id.startswith("FRD-") or
+            rule_id.startswith("DBG-") or
+            rule_id.startswith("IPC-004")
+        )
+
     def _scan_function_with_patterns(
         self,
         binary: ParsedBinary,
@@ -164,8 +179,12 @@ class BaseAnalyzer(ABC):
                     else:
                         continue
 
-                    # Scope-based deduplication per sub-rule ID or parent rule ID per function
-                    scope_key = (sub_rule_id, func.name)
+                    # Scope-based deduplication per sub-rule ID per line or function
+                    if self._is_aggregatable(sub_rule_id):
+                        scope_key = (sub_rule_id, func.name, idx)
+                    else:
+                        scope_key = (sub_rule_id, func.name)
+
                     if scope_key in seen_function_scopes:
                         continue
 
@@ -189,7 +208,7 @@ class BaseAnalyzer(ABC):
                             func.name == "global_strings_section" or
                             func.name.endswith("_section") or
                             func.name.endswith("_strings") or
-                            target_rule.id in ["DBG-001", "FRD-001", "STR-001"]
+                            self._is_aggregatable(sub_rule_id)
                         )
 
                         if is_string_sec:

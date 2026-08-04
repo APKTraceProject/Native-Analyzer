@@ -139,32 +139,86 @@ class ScanEngine:
                 findings = analyzer_inst.analyze(parsed_binary)
                 all_findings.extend(findings)
 
-            # Step 3: Enforce function-scope finding deduplication
-            deduped_findings = self._deduplicate_findings(all_findings)
+            # Step 3: Enforce selective finding aggregation for static data artifacts
+            deduped_findings = self._aggregate_findings(all_findings)
             
             # Step 4: Re-index sequential finding identifiers (FIND-01, FIND-02, ...)
             for idx, f in enumerate(deduped_findings):
                 f.finding_id = f"FIND-{idx+1:02d}"
+                if f.matches:
+                    for m_idx, match in enumerate(f.matches):
+                        match["match_id"] = f"{f.finding_id}-{m_idx+1}"
 
             return parsed_binary, deduped_findings
         except Exception as e:
             # Re-raise exception for upper layer driver handling
             raise e
 
-    def _deduplicate_findings(self, findings: List[Finding]) -> List[Finding]:
+    @staticmethod
+    def _is_aggregatable(rule_id: str) -> bool:
         """
-        Deduplicates findings by enforcing uniqueness per (rule_id, function_name) tuple.
+        Determines if a rule ID belongs to aggregatable static artifact categories.
+        Aggregatable categories: STR-*, FRD-*, DBG-*, and IPC-004.
+        """
+        if not rule_id:
+            return False
+        return (
+            rule_id.startswith("STR-") or
+            rule_id.startswith("FRD-") or
+            rule_id.startswith("DBG-") or
+            rule_id.startswith("IPC-004")
+        )
+
+    def _aggregate_findings(self, findings: List[Finding]) -> List[Finding]:
+        """
+        Aggregates static data findings by 5-tuple composite key while keeping execution flow findings independent.
+        
+        5-Tuple Composite Grouping Key:
+        (rule_id, severity, confidence, location.function_name, flow_analysis.source)
         
         @param findings Raw list of matched findings.
-        @return List[Finding] Scope-deduplicated finding list.
+        @return List[Finding] Aggregated finding list.
         """
-        seen_keys = set()
-        unique_findings = []
+        final_findings: List[Finding] = []
+        aggregatable_groups: Dict[Tuple[str, str, str, str, str], List[Finding]] = {}
+        group_keys_order: List[Tuple[str, str, str, str, str]] = []
 
         for f in findings:
-            key = (f.rule_id, f.location.function_name)
-            if key not in seen_keys:
-                seen_keys.add(key)
-                unique_findings.append(f)
+            if self._is_aggregatable(f.rule_id):
+                key = (
+                    f.rule_id,
+                    f.severity,
+                    f.confidence,
+                    f.location.function_name,
+                    f.flow_analysis.source,
+                )
+                if key not in aggregatable_groups:
+                    aggregatable_groups[key] = []
+                    group_keys_order.append(key)
+                aggregatable_groups[key].append(f)
+            else:
+                final_findings.append(f)
 
-        return unique_findings
+        for key in group_keys_order:
+            group = aggregatable_groups[key]
+            base_finding = group[0]
+            
+            if len(group) > 1:
+                matches_list = []
+                for item in group:
+                    matches_list.append({
+                        "match_id": "",
+                        "line_number": item.location.line_number,
+                        "target_variable": item.target_variable,
+                        "trigger_line": item.trigger_line
+                    })
+                base_finding.matches = matches_list
+                base_finding.total_matches = len(group)
+            else:
+                base_finding.matches = None
+                base_finding.total_matches = 1
+
+            final_findings.append(base_finding)
+
+        return final_findings
+

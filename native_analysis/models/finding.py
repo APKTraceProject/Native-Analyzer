@@ -49,6 +49,8 @@ class Finding:
         target_variable (str): Name of affected variable, buffer, or extracted static data string artifact.
         trigger_line (str): Exact code statement triggering the vulnerability alert.
         flow_analysis (FlowAnalysis): Data flow context object detailing source to sink.
+        matches (Optional[List[Dict[str, Any]]]): List of individual match details for aggregated static findings (containing match_id, line_number, target_variable, trigger_line).
+        total_matches (int): Total count of matches aggregated into this finding (default 1).
     """
     finding_id: str
     rule_id: str
@@ -58,6 +60,8 @@ class Finding:
     target_variable: str
     trigger_line: str
     flow_analysis: FlowAnalysis
+    matches: Optional[List[Dict[str, Any]]] = None
+    total_matches: int = 1
 
     def to_dict(self) -> Dict[str, Any]:
         """
@@ -65,7 +69,7 @@ class Finding:
         
         @return Dict[str, Any] Serialized dictionary representation of finding payload.
         """
-        return {
+        d = {
             "finding_id": self.finding_id,
             "rule_id": self.rule_id,
             "severity": self.severity,
@@ -73,6 +77,11 @@ class Finding:
             "location": self.location.to_dict(),
             "target_variable": self.target_variable,
             "trigger_line": self.trigger_line,
-            "flow_analysis": self.flow_analysis.to_dict()
+            "flow_analysis": self.flow_analysis.to_dict(),
         }
+        if self.total_matches > 1:
+            d["total_matches"] = self.total_matches
+            if self.matches is not None:
+                d["matches"] = self.matches
+        return d
 
