@@ -190,6 +190,8 @@ The engine produces a standardized 3-Tier JSON report containing executive metri
         {
           "finding_id": "FIND-01",
           "rule_id": "INJ-001",
+          "cwe_id": "CWE-78",
+          "masvs_id": "MASVS-CODE-2",
           "severity": "CRITICAL",
           "confidence": "HIGH",
           "location": {
@@ -209,6 +211,8 @@ The engine produces a standardized 3-Tier JSON report containing executive metri
         {
           "finding_id": "FIND-02",
           "rule_id": "FRD-001",
+          "cwe_id": "CWE-693",
+          "masvs_id": "MASVS-RESILIENCE-2",
           "severity": "HIGH",
           "confidence": "HIGH",
           "location": {

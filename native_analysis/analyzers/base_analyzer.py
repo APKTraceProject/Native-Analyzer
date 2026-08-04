@@ -10,6 +10,24 @@ from native_analysis.models.parsed_binary import ParsedBinary, DecompiledFunctio
 from native_analysis.models.finding import Finding, FlowAnalysis
 from native_analysis.models.location import Location
 
+RULE_PREFIX_MAP = {
+    "BOF": ("CWE-120", "MASVS-CODE-2"),
+    "INJ": ("CWE-78",  "MASVS-CODE-2"),
+    "FMT": ("CWE-134", "MASVS-CODE-2"),
+    "JNI": ("CWE-200", "MASVS-CODE-2"),
+    "REF": ("CWE-470", "MASVS-CODE-2"),
+    "IPC": ("CWE-926", "MASVS-PLATFORM-1"),
+    "PRM": ("CWE-732", "MASVS-STORAGE-1"),
+    "STR": ("CWE-798", "MASVS-CRYPTO-1"),
+    "CRY": ("CWE-327", "MASVS-CRYPTO-1"),
+    "RND": ("CWE-330", "MASVS-CRYPTO-1"),
+    "INT": ("CWE-190", "MASVS-CODE-2"),
+    "MEM": ("CWE-416", "MASVS-CODE-2"),
+    "DBG": ("CWE-489", "MASVS-RESILIENCE-1"),
+    "FRD": ("CWE-693", "MASVS-RESILIENCE-2"),
+    "SEC": ("CWE-693", "MASVS-CODE-1")
+}
+
 class BaseAnalyzer(ABC):
     """
     Base analyzer providing signature pattern matching, 20-line context window formatting,
@@ -247,9 +265,14 @@ class BaseAnalyzer(ABC):
                             trigger_line_number=line_no
                         )
 
+                        prefix = sub_rule_id.split("-")[0] if "-" in sub_rule_id else sub_rule_id[:3]
+                        cwe_id, masvs_id = RULE_PREFIX_MAP.get(prefix, ("CWE-693", "MASVS-CODE-2"))
+
                         finding = Finding(
                             finding_id=f"FIND-{len(findings)+1:02d}",
                             rule_id=sub_rule_id,
+                            cwe_id=cwe_id,
+                            masvs_id=masvs_id,
                             severity=sev,
                             confidence=conf,
                             location=loc,

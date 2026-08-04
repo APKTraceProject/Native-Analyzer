@@ -43,6 +43,8 @@ class Finding:
     Attributes:
         finding_id (str): Unique finding identifier (e.g., 'FIND-01').
         rule_id (str): Rule signature identifier (e.g., 'INJ-001').
+        cwe_id (str): Common Weakness Enumeration ID (e.g., 'CWE-120').
+        masvs_id (str): OWASP MASVS Control ID (e.g., 'MASVS-CODE-2').
         severity (str): Severity rating ('CRITICAL', 'HIGH', 'MEDIUM', 'LOW').
         confidence (str): Confidence level ('HIGH', 'MEDIUM', 'LOW').
         location (Location): Location object specifying function address and line offset.
@@ -54,6 +56,8 @@ class Finding:
     """
     finding_id: str
     rule_id: str
+    cwe_id: str
+    masvs_id: str
     severity: str
     confidence: str
     location: Location
@@ -72,6 +76,8 @@ class Finding:
         d = {
             "finding_id": self.finding_id,
             "rule_id": self.rule_id,
+            "cwe_id": self.cwe_id,
+            "masvs_id": self.masvs_id,
             "severity": self.severity,
             "confidence": self.confidence,
             "location": self.location.to_dict(),

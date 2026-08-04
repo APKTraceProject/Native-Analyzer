@@ -198,6 +198,8 @@ The architecture comprises a modular pipeline:
   - **Non-Aggregatable Rules**: Control-flow, taint-analysis, and execution vulnerabilities (`JNI-*`, `BOF-*`, `INJ-*`, `REF-*`, `RND-*`, `CRY-*`, `PRM-*`, `INT-*`, `MEM-*`, `FMT-*`, `IPC-001`, `IPC-002`, `IPC-003`). Each occurrence remains a distinct standalone `Finding` object.
 - **5-Tuple Composite Grouping Key**: Merges Aggregatable Rules into a single `Finding` object ONLY if all 5 criteria match: `rule_id`, `severity`, `confidence`, `location.function_name`, and `flow_analysis.source`.
 - **Target & Finding Schema Fields**:
+  - `cwe_id` (str): Common Weakness Enumeration ID (e.g., `CWE-120`).
+  - `masvs_id` (str): OWASP MASVS Control ID (e.g., `MASVS-CODE-2`).
   - `functions_code_scope` (dict[str, list[str]]): Target-level map of function names to their decompiled code lines.
   - `flow_analysis` (dict): Taint flow tracking object containing `source`, `sink`, and `trigger_line_number`.
   - `total_matches` (int): Total count of matches aggregated into this finding (defaults to 1).
@@ -256,6 +258,8 @@ The scanner outputs structured JSON results adhering to the following schema:
         {
           "finding_id": "FIND-01",
           "rule_id": "BOF-002",
+          "cwe_id": "CWE-120",
+          "masvs_id": "MASVS-CODE-2",
           "severity": "CRITICAL",
           "confidence": "HIGH",
           "location": {
@@ -275,6 +279,8 @@ The scanner outputs structured JSON results adhering to the following schema:
         {
           "finding_id": "FIND-02",
           "rule_id": "FRD-001",
+          "cwe_id": "CWE-693",
+          "masvs_id": "MASVS-RESILIENCE-2",
           "severity": "HIGH",
           "confidence": "HIGH",
           "location": {
