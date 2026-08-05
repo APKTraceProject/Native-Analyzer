@@ -76,7 +76,7 @@ def main():
     Execution Flow:
     1. Displays ASCII banner and parses command-line arguments (-c, -t, -o).
     2. Loads rules and CLI configuration parameters via ConfigLoader.
-    3. Verifies target file on disk (synthesizing dummy ELF library if missing).
+    3. Verifies target file on disk.
     4. Initializes ScanEngine and runs static vulnerability scan.
     5. Exports 3-tier structured JSON report artifact via JSONReporter.
     """
@@ -102,16 +102,10 @@ def main():
     output_path = args.output if args.output else cli_config.get("output_json_path", "./output/report.json")
     ghidra_path = cli_config.get("ghidra_headless_path")
 
-    # Verify target existence or create dummy target for standalone demonstration
+    # Verify target existence
     if not os.path.exists(target_path):
-        print_status("!", COLOR_YELLOW, f"Target binary '{target_path}' not found on disk. Creating synthetic test binary.")
-        os.makedirs(os.path.dirname(os.path.abspath(target_path)), exist_ok=True)
-        # Create small synthetic test .so file with ELF header
-        with open(target_path, "wb") as f:
-            f.write(b"\x7fELF\x02\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x03\x00\xb7\x00") # ELF arm64-v8a
-            f.write(b"Java_com_example_app_NativeLib_executeCmd\x00")
-            f.write(b"system\x00strcpy\x00sprintf\x00ptrace\x00")
-            f.write(b"/system/bin/ping -c 1 %s\x00")
+        print_status("X", COLOR_RED, f"Target binary '{target_path}' not found.")
+        sys.exit(1)
 
     print_status("*", COLOR_CYAN, f"Binary analysis in progress for '{target_path}'...")
 
