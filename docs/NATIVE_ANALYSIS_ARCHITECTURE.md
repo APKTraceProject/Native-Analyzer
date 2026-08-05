@@ -157,6 +157,7 @@ The architecture comprises a modular pipeline:
 - Inspects string sections for binary security mitigations (`__stack_chk_fail` for Stack Canary, `GNU_RELRO` for RELRO status).
 - When Ghidra Headless is unavailable, the fallback parser extracts printable ASCII/UTF-8 strings and resolves exported JNI symbols (`Java_...`).
 - Constructs synthetic decompiled function blocks representing extracted native routines, assigning 16-byte aligned virtual memory addresses starting at offset `0x2b00`.
+- **JNI Alias Deduplication & Normalization**: Automatically detects and eliminates duplicate function entries where short demographic/mangled symbol names (e.g., `executeDiagnostic`) match the trailing identifier of fully qualified JNI exported symbols (`Java_com_example_app_NativeCoreEngine_executeDiagnostic`) at the same address or identical code lines. Prioritizes the fully qualified `Java_...` symbol as the canonical identifier (`is_exported_jni = True`) and removes redundant short aliases from `functions_code_scope`, `symbol_table`, and `parsed_binary`, ensuring each unique JNI implementation is analyzed exactly once without duplicate findings.
 
 ### 2. Rule Engine Configuration & Model Parsing (`config/rules.yaml`, `config_loader.py`, `rule.py`)
 - **YAML Signature Schema**: Vulnerability detection rules in `config/rules.yaml` utilize a structured nested format:

@@ -235,6 +235,56 @@ run_export()
 
         return None
 
+    def _deduplicate_functions(
+        self,
+        functions: List[DecompiledFunction]
+    ) -> List[DecompiledFunction]:
+        """
+        Deduplicates JNI alias entries (short demographic/mangled names vs. fully qualified Java_... JNI names).
+        
+        Prioritizes fully qualified JNI exported symbol names (Java_...) as the canonical identifier.
+        When a short symbol name matches the trailing identifier of a Java_... function at the same memory address
+        or with identical code lines, the redundant short symbol entry is removed.
+        """
+        # Separate fully qualified JNI functions vs others
+        jni_funcs = [f for f in functions if f.name.startswith("Java_")]
+        if not jni_funcs:
+            return functions
+
+        # Build mapping of short_name -> canonical Java_... function
+        short_to_canonical: Dict[str, DecompiledFunction] = {}
+        for jf in jni_funcs:
+            short_name = jf.name.rsplit("_", 1)[-1]
+            if short_name:
+                short_to_canonical[short_name] = jf
+
+        deduped: List[DecompiledFunction] = []
+        for f in functions:
+            # Always keep Java_... functions
+            if f.name.startswith("Java_"):
+                deduped.append(f)
+                continue
+
+            # Check if non-Java_ function is an alias for a Java_ function
+            if f.name in short_to_canonical:
+                canonical = short_to_canonical[f.name]
+                # Match if same address or same code lines
+                same_address = (f.address == canonical.address)
+                same_lines = (f.code_lines == canonical.code_lines)
+                
+                # Also handle fallback synthesized code lines where function name is injected into comments/signatures
+                if not same_lines and len(f.code_lines) == len(canonical.code_lines) and len(f.code_lines) > 2:
+                    # Check lines ignoring first 3 header/signature lines that contain the function name
+                    same_lines = (f.code_lines[3:] == canonical.code_lines[3:])
+
+                if same_address or same_lines:
+                    # Redundant short JNI alias entry -> skip
+                    continue
+
+            deduped.append(f)
+
+        return deduped
+
     def _construct_parsed_binary(
         self,
         file_name: str,
@@ -261,6 +311,8 @@ run_export()
                 is_exported_jni=is_jni
             )
             functions.append(decomp)
+
+        functions = self._deduplicate_functions(functions)
 
         code_scope = {
             f.name: f.code_lines for f in functions
@@ -472,6 +524,8 @@ run_export()
             code_lines=global_lines,
             is_exported_jni=False
         ))
+
+        functions = self._deduplicate_functions(functions)
 
         code_scope = {
             f.name: f.code_lines for f in functions

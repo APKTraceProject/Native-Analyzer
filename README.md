@@ -39,7 +39,7 @@
 ```
 
 1. **Ingestion & Metadata Extraction**: Reads raw binary headers, computes SHA-256 digests, and detects binary exploit mitigations (Stack Canaries, NX Bit, PIE, RELRO).
-2. **Decompilation Pipeline**: Invokes Ghidra Headless decompilation or executes the zero-dependency fallback heuristic parser to reconstruct C function bodies and `.rodata` string tables.
+2. **Decompilation Pipeline**: Invokes Ghidra Headless decompilation or executes the zero-dependency fallback heuristic parser to reconstruct C function bodies and `.rodata` string tables. Automatically deduplicates JNI function aliases (matching short symbols like `executeDiagnostic` to fully qualified JNI exports like `Java_com_example_app_NativeCoreEngine_executeDiagnostic`) to ensure each unique implementation is scanned exactly once.
 3. **AST Pattern Matching & Flow Context**: Runs 15 specialized static analyzers across decompiled code blocks using fine-grained, pattern-specific sub-rule IDs (e.g., `BOF-001` for `gets()`, `BOF-002` for `strcpy()`, `BOF-004` for `sprintf()`).
 4. **Selective Finding Aggregation**: Aggregates static binary data & string artifact findings (`STR-*`, `FRD-*`, `DBG-*`, `IPC-004`) sharing identical 5-tuple keys (`rule_id`, `severity`, `confidence`, `location.function_name`, `flow_analysis.source`) into composite findings with `matches` and `total_matches` counts, while keeping execution-path vulnerabilities (`JNI-*`, `BOF-*`, `INJ-*`, etc.) strictly independent.
 5. **Report Serialization**: Produces standardized 3-tier JSON report payloads with attack surface metrics and severity tallies.

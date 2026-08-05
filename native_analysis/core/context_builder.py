@@ -67,9 +67,10 @@ class ContextBuilder:
             })
 
         # 4. Symbol Table
+        all_function_names = [f.name for f in parsed_binary.functions if f.name != "global_strings_section" and not f.name.endswith("_section") and not f.name.endswith("_strings")]
         symbol_table = {
             "exported_jni_functions": parsed_binary.exported_jni_functions,
-            "functions": [f.name for f in parsed_binary.functions],
+            "functions": all_function_names,
             "imports": [],
             "exports": parsed_binary.exported_jni_functions,
         }
