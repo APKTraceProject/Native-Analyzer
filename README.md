@@ -178,16 +178,16 @@ The engine produces a standardized 3-Tier JSON report containing executive metri
           "symbol_address": "0x00002b40",
           "is_exported_jni": true,
           "source_code": [
-            "/* Function: Java_com_example_app_NativeLib_executeCmd */",
-            "JNIEXPORT jstring JNICALL",
-            "Java_com_example_app_NativeLib_executeCmd(JNIEnv *env, jobject thiz, jstring j_cmd) {",
-            "    char command_buf[512];",
-            "    const char* user_input = (*env)->GetStringUTFChars(env, j_cmd, 0);",
-            "    sprintf(command_buf, \"/system/bin/ping -c 1 %s\", user_input);",
-            "    system(command_buf);",
-            "    (*env)->ReleaseStringUTFChars(env, j_cmd, user_input);",
-            "    return (*env)->NewStringUTF(env, \"OK\");",
-            "}"
+            "1: /* Function: Java_com_example_app_NativeLib_executeCmd */",
+            "2: JNIEXPORT jstring JNICALL",
+            "3: Java_com_example_app_NativeLib_executeCmd(JNIEnv *env, jobject thiz, jstring j_cmd) {",
+            "4:     char command_buf[512];",
+            "5:     const char* user_input = (*env)->GetStringUTFChars(env, j_cmd, 0);",
+            "6:     sprintf(command_buf, \"/system/bin/ping -c 1 %s\", user_input);",
+            "7:     system(command_buf);",
+            "8:     (*env)->ReleaseStringUTFChars(env, j_cmd, user_input);",
+            "9:     return (*env)->NewStringUTF(env, \"OK\");",
+            "10: }"
           ],
           "findings": [
             {
@@ -201,9 +201,8 @@ The engine produces a standardized 3-Tier JSON report containing executive metri
               "target_variable": "command_buf",
               "trigger_line": "system(command_buf);",
               "flow_analysis": {
-                "source": "JNI String parameter 'user_input' passed from Java layer at line 5",
-                "sink": "Unsanitized command execution via system() call at line 7",
-                "trigger_line_number": 7
+                "trigger_line_number": 7,
+                "flow_trace": "j_cmd (L3) -> user_input (L5) -> command_buf (L6) -> system (L7) [SINK]"
               }
             }
           ]
@@ -225,9 +224,8 @@ The engine produces a standardized 3-Tier JSON report containing executive metri
               "target_variable": "/system/bin/su",
               "trigger_line": "/* String artifact */ \"/system/bin/su\";",
               "flow_analysis": {
-                "source": "Hardcoded static binary string artifact",
-                "sink": "Unsanitized reference via pattern '/system/bin/su' at line 10",
-                "trigger_line_number": 10
+                "trigger_line_number": 10,
+                "flow_trace": "Static String Data (L10) -> /system/bin/su [SINK]"
               },
               "total_matches": 2,
               "matches": [

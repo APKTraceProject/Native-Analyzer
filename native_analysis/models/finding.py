@@ -18,10 +18,12 @@ class FlowAnalysis:
         source (str): Description of data entry point or source variable.
         sink (str): Description of vulnerability sink call.
         trigger_line_number (int): Specific line number in the parent function scope.
+        flow_trace (Optional[str]): Compact trace representation (e.g. 'j_cmd (L3) -> user_input (L5) -> command_buf (L7) [SINK]').
     """
     source: str
     sink: str
     trigger_line_number: int = 0
+    flow_trace: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """
@@ -29,11 +31,12 @@ class FlowAnalysis:
         
         @return Dict[str, Any] Serialized dictionary representation of flow analysis.
         """
-        return {
-            "source": self.source,
-            "sink": self.sink,
+        d = {
             "trigger_line_number": self.trigger_line_number
         }
+        if self.flow_trace:
+            d["flow_trace"] = self.flow_trace
+        return d
 
 @dataclass
 class Finding:

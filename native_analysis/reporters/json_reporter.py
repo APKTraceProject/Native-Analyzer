@@ -8,6 +8,68 @@ from typing import List, Dict, Any, Tuple, Optional
 from native_analysis.models.parsed_binary import ParsedBinary
 from native_analysis.models.finding import Finding
 
+def _build_source_code_snippets(
+    code_lines: List[str],
+    findings: List[Finding],
+    window_size: int = 5
+) -> List[str]:
+    """
+    Constructs localized source code snippets around finding trigger lines.
+    Applies a context window (+/- window_size lines) around each finding,
+    merges overlapping intervals smoothly, and includes 1-indexed line numbers.
+    If there are no findings or code_lines is empty, returns formatted lines or empty list.
+
+    @param code_lines Full list of code lines for the function.
+    @param findings List of findings associated with this function.
+    @param window_size Number of context lines before and after trigger line (default 5).
+    @return List[str] Merged, formatted code snippet lines with line numbers.
+    """
+    if not code_lines:
+        return []
+
+    if not findings:
+        # If no findings, return all code lines formatted with 1-based line numbers
+        return [f"{idx + 1}: {line}" for idx, line in enumerate(code_lines)]
+
+    total_lines = len(code_lines)
+    intervals = []
+
+    for f in findings:
+        trigger_line = f.location.line_number
+        if trigger_line <= 0:
+            trigger_line = 1
+        start = max(1, trigger_line - window_size)
+        end = min(total_lines, trigger_line + window_size)
+        intervals.append((start, end))
+
+    # Sort intervals by start line
+    intervals.sort(key=lambda x: x[0])
+
+    # Merge overlapping or contiguous intervals
+    merged_intervals = []
+    for start, end in intervals:
+        if not merged_intervals:
+            merged_intervals.append((start, end))
+        else:
+            prev_start, prev_end = merged_intervals[-1]
+            if start <= prev_end + 1:
+                merged_intervals[-1] = (prev_start, max(prev_end, end))
+            else:
+                merged_intervals.append((start, end))
+
+    # Format lines within merged intervals
+    snippet_lines = []
+    for i, (start, end) in enumerate(merged_intervals):
+        if i > 0:
+            snippet_lines.append("...")
+        for line_num in range(start, end + 1):
+            line_idx = line_num - 1
+            if 0 <= line_idx < total_lines:
+                snippet_lines.append(f"{line_num}: {code_lines[line_idx]}")
+
+    return snippet_lines
+
+
 class JSONReporter:
     """
     Generates structured vulnerability reports matching JSON schema standards.
@@ -119,12 +181,13 @@ class JSONReporter:
                 seen_function_names.add(func.name)
                 func_findings = findings_by_function.get(func.name, [])
                 scoped_findings = [f.to_scoped_dict() for f in func_findings]
+                snippet_lines = _build_source_code_snippets(func.code_lines, func_findings, window_size=5)
 
                 functions_list.append({
                     "function_name": func.name,
                     "symbol_address": func.address,
                     "is_exported_jni": func.is_exported_jni,
-                    "source_code": func.code_lines,
+                    "source_code": snippet_lines,
                     "findings": scoped_findings
                 })
 

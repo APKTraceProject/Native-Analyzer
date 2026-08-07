@@ -54,6 +54,153 @@ class BaseAnalyzer(ABC):
         """
         pass
 
+    def _build_flow_trace(
+        self,
+        func_name: str,
+        code_lines: List[str],
+        trigger_idx: int,
+        pat_str: str,
+        target_var: str
+    ) -> str:
+        """
+        Constructs a concise, accurate taint flow trace propagation path from Source to Sink.
+        Chains parameter bindings and intermediate variable assignments.
+        """
+        line_no = trigger_idx + 1
+        trigger_line = code_lines[trigger_idx] if 0 <= trigger_idx < len(code_lines) else ""
+
+        # Check for static string artifact or section
+        if func_name == "global_strings_section" or func_name.endswith("_section") or func_name.endswith("_strings"):
+            return f"Static String Data (L{line_no}) -> {target_var} [SINK]"
+
+        # Parse signature and function parameters
+        sig_line_no = 1
+        params: Dict[str, int] = {}
+        ignored_params = {"env", "thiz", "this", "JNIEnv", "jobject", "void", ""}
+
+        for idx, line in enumerate(code_lines[:trigger_idx]):
+            clean = line.strip()
+            if func_name in line and "(" in line and not clean.startswith("/*"):
+                sig_line_no = idx + 1
+                m = re.search(r'\((.*?)\)', line)
+                if m:
+                    for p in m.group(1).split(','):
+                        tokens = re.findall(r'\b[a-zA-Z_][a-zA-Z0-9_]*\b', p.strip())
+                        if tokens:
+                            v = tokens[-1]
+                            if v not in ignored_params:
+                                params[v] = sig_line_no
+                break
+
+        # Identify sink function if applicable
+        sink_func = None
+        sink_match = re.search(
+            r'\b(popen|system|execve|execl|strcpy|strcat|strncpy|strncat|sprintf|snprintf|printf|vfprintf|syslog|free|malloc|open|mkdir|socket|bind|connect|GetStringUTFChars|ReleaseStringUTFChars|FindClass|GetStaticMethodID|GetMethodID|CallObjectMethod|CallVoidMethod|srand|rand)\b\s*\(',
+            trigger_line
+        )
+        if sink_match:
+            sink_func = sink_match.group(1)
+
+        # Collect variable assignment / copy dependencies prior to trigger line
+        deps = []  # list of (l_no, dest_var, src_vars)
+        for idx in range(sig_line_no - 1, trigger_idx):
+            l_text = code_lines[idx]
+            l_no = idx + 1
+            l_clean = l_text.strip()
+            if l_clean.startswith(("if", "return", "while", "for", "switch", "/*")):
+                continue
+
+            # Strip string literals so identifiers inside quotes are ignored
+            l_no_str = re.sub(r'"[^"\\]*(?:\\.[^"\\]*)*"', '""', l_clean)
+
+            # Function copy/format calls (e.g., strcpy(cfg_buf, config_input))
+            copy_m = re.search(r'\b(strcpy|strcat|strncpy|strncat|memcpy|sprintf|snprintf)\b\s*\(\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*,\s*(.*)', l_no_str)
+            if copy_m:
+                dest = copy_m.group(2)
+                rest = copy_m.group(3)
+                src_ids = [
+                    i for i in re.findall(r'\b[a-zA-Z_][a-zA-Z0-9_]*\b', rest)
+                    if i not in {"env", "thiz", "this", "NULL", "sizeof", "int", "char", "void", "const", "unsigned", "long"}
+                ]
+                deps.append((l_no, dest, src_ids))
+                continue
+
+            # Assignment statements (e.g. config_input = (*env)->GetStringUTFChars(env, j_cfg, 0))
+            assign_m = re.search(r'(?:[a-zA-Z_][a-zA-Z0-9_*\s]*\s+)?([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:=|\^=|\+=|-=|\*=)\s*(.*)', l_no_str)
+            if assign_m:
+                lhs = assign_m.group(1)
+                rhs = assign_m.group(2)
+                if lhs not in {"if", "return", "while", "for", "switch", "char", "int", "const", "void", "long"}:
+                    src_ids = [
+                        i for i in re.findall(r'\b[a-zA-Z_][a-zA-Z0-9_]*\b', rhs)
+                        if i not in {lhs, "env", "thiz", "this", "GetStringUTFChars", "NULL", "0", "1", "2", "malloc", "rand", "time", "sizeof", "int", "char", "void", "const", "unsigned", "long"}
+                    ]
+                    deps.append((l_no, lhs, src_ids))
+                    continue
+
+        # Extract argument identifiers from trigger_line call
+        call_args_m = re.search(r'\((.*)\)', trigger_line)
+        args_list = []
+        if call_args_m:
+            raw_args = call_args_m.group(1).split(',')
+            for a in raw_args:
+                ids = re.findall(r'\b[a-zA-Z_][a-zA-Z0-9_]*\b', a)
+                for identifier in ids:
+                    if identifier not in {"env", "thiz", "this", "NULL", "r", "w", "stdout", "sizeof", "int", "char", "void", "const"}:
+                        args_list.append(identifier)
+                        break
+
+        start_var = target_var if (target_var and target_var not in {"env", "thiz", "this"}) else (args_list[0] if args_list else None)
+
+        # Build node trace backward
+        nodes = []
+        if sink_func:
+            nodes.append((f"{sink_func} [SINK]", line_no))
+        elif start_var:
+            nodes.append((f"{start_var} [SINK]", line_no))
+        else:
+            nodes.append(("Call [SINK]", line_no))
+
+        curr_var = start_var
+        visited_lines = set()
+
+        while curr_var:
+            if curr_var in params:
+                nodes.append((curr_var, params[curr_var]))
+                break
+
+            found_dep = False
+            for l_no, dest, src_ids in reversed(deps):
+                if dest == curr_var and l_no not in visited_lines:
+                    visited_lines.add(l_no)
+                    nodes.append((curr_var, l_no))
+                    curr_var = src_ids[0] if src_ids else None
+                    found_dep = True
+                    break
+
+            if not found_dep:
+                if curr_var in params:
+                    nodes.append((curr_var, params[curr_var]))
+                elif params:
+                    p_name, p_line = list(params.items())[0]
+                    nodes.append((p_name, p_line))
+                else:
+                    nodes.append((curr_var, sig_line_no))
+                break
+
+        nodes.reverse()
+        formatted_nodes = []
+        for item, l_num in nodes:
+            if "[SINK]" in item:
+                clean_item = item.replace(" [SINK]", "")
+                s = f"{clean_item} (L{l_num}) [SINK]"
+            else:
+                s = f"{item} (L{l_num})"
+            if not formatted_nodes or formatted_nodes[-1] != s:
+                formatted_nodes.append(s)
+
+        return " -> ".join(formatted_nodes)
+
     def _extract_context_window(
         self,
         code_lines: List[str],
@@ -122,19 +269,23 @@ class BaseAnalyzer(ABC):
                 return matched_text
 
         # 4. Standard C function call parameter extraction: e.g. func(var, ...)
-        arg_match = re.search(r'\(\s*([^,)]+)', trigger_line)
+        arg_match = re.search(r'\((.*)\)', trigger_line)
         if arg_match:
-            var = arg_match.group(1).strip()
-            # Clean up pointer dereference (*), address-of (&), or C type casts e.g. (char*)
-            var = re.sub(r'^\*|^\&|^\([^\)]+\)\s*', '', var).strip()
-            if var and var != "void":
-                return var
+            raw_args = arg_match.group(1).split(',')
+            for arg_str in raw_args:
+                var = arg_str.strip()
+                var = re.sub(r'^\*|^\&|^\([^\)]+\)\s*', '', var).strip()
+                id_match = re.search(r'\b[a-zA-Z_][a-zA-Z0-9_]*(?:\[[^\]]+\])?\b', var)
+                if id_match:
+                    id_val = id_match.group(0)
+                    if id_val and id_val not in {"env", "thiz", "this", "void", "NULL", "0", "1"}:
+                        return id_val
 
         # 5. Variable assignment LHS: e.g. var = rand() or buf[i] ^= 0x5A
         assign_match = re.search(r'([a-zA-Z_][a-zA-Z0-9_]*(?:\[[^\]]+\])?)\s*(?:=|\^=|\+=|-=|\*=)', trigger_line)
         if assign_match:
             var = assign_match.group(1).strip()
-            if var:
+            if var and var not in {"env", "thiz", "this", "if", "return", "while", "for"}:
                 return var
 
         # 6. Fallback to matched text of pattern
@@ -249,6 +400,7 @@ class BaseAnalyzer(ABC):
                             )
                             source_desc = "Hardcoded static binary string artifact"
                             sink_desc = f"Unsanitized reference via pattern '{pat_str}' at line {line_no}"
+                            flow_trace = f"Static String Data (L{line_no}) -> {var_name} [SINK]"
                         else:
                             loc = Location(
                                 function_name=func.name,
@@ -270,11 +422,19 @@ class BaseAnalyzer(ABC):
 
                             source_desc = f"JNI or internal parameter passed to function '{func.name}' at line {src_line_no}"
                             sink_desc = f"Unsanitized call via pattern '{pat_str}' at line {line_no}"
+                            flow_trace = self._build_flow_trace(
+                                func.name,
+                                func.code_lines,
+                                idx,
+                                pat_str,
+                                var_name
+                            )
 
                         flow = FlowAnalysis(
                             source=source_desc,
                             sink=sink_desc,
-                            trigger_line_number=line_no
+                            trigger_line_number=line_no,
+                            flow_trace=flow_trace
                         )
 
                         prefix = sub_rule_id.split("-")[0] if "-" in sub_rule_id else sub_rule_id[:3]

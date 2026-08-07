@@ -205,7 +205,7 @@ The architecture comprises a modular pipeline:
   - `cwe_id` (str): Common Weakness Enumeration ID (e.g., `CWE-120`).
   - `masvs_id` (str): OWASP MASVS Control ID (e.g., `MASVS-CODE-2`).
   - `functions_code_scope` (dict[str, list[str]]): Target-level map of function names to their decompiled code lines.
-  - `flow_analysis` (dict): Taint flow tracking object containing `source`, `sink`, and `trigger_line_number`.
+  - `flow_analysis` (dict): Taint flow tracking object containing `trigger_line_number` and compact `flow_trace`.
   - `total_matches` (int): Total count of matches aggregated into this finding (defaults to 1).
   - `matches` (list[dict]): Array of match occurrences containing `match_id` (e.g. `FIND-02-1`), `line_number`, `target_variable`, and `trigger_line`.
 
@@ -275,14 +275,14 @@ The scanner outputs structured JSON results adhering to a 4-level hierarchical s
           "symbol_address": "0x00002b20",
           "is_exported_jni": true,
           "source_code": [
-            "/* Function: Java_com_example_app_NativeLib_processInput */",
-            "JNIEXPORT jstring JNICALL",
-            "Java_com_example_app_NativeLib_processInput(JNIEnv *env, jobject thiz, jstring j_str) {",
-            "    char dest_buf[512];",
-            "    const char* user_str = (*env)->GetStringUTFChars(env, j_str, 0);",
-            "    strcpy(dest_buf, user_str);",
-            "    return (*env)->NewStringUTF(env, \"OK\");",
-            "}"
+            "1: /* Function: Java_com_example_app_NativeLib_processInput */",
+            "2: JNIEXPORT jstring JNICALL",
+            "3: Java_com_example_app_NativeLib_processInput(JNIEnv *env, jobject thiz, jstring j_str) {",
+            "4:     char dest_buf[512];",
+            "5:     const char* user_str = (*env)->GetStringUTFChars(env, j_str, 0);",
+            "6:     strcpy(dest_buf, user_str);",
+            "7:     return (*env)->NewStringUTF(env, \"OK\");",
+            "8: }"
           ],
           "findings": [
             {
@@ -296,9 +296,8 @@ The scanner outputs structured JSON results adhering to a 4-level hierarchical s
               "target_variable": "dest_buf",
               "trigger_line": "strcpy(dest_buf, user_str);",
               "flow_analysis": {
-                "source": "JNI or internal parameter passed to function 'Java_com_example_app_NativeLib_processInput' at line 5",
-                "sink": "Unsanitized call via pattern 'strcpy' at line 6",
-                "trigger_line_number": 6
+                "trigger_line_number": 6,
+                "flow_trace": "user_str (L3) -> dest_buf (L6) [SINK]"
               }
             }
           ]
@@ -320,9 +319,8 @@ The scanner outputs structured JSON results adhering to a 4-level hierarchical s
               "target_variable": "/system/bin/su",
               "trigger_line": "/* String artifact */ \"/system/bin/su\";",
               "flow_analysis": {
-                "source": "Hardcoded static binary string artifact",
-                "sink": "Unsanitized reference via pattern '/system/bin/su' at line 10",
-                "trigger_line_number": 10
+                "trigger_line_number": 10,
+                "flow_trace": "Static String Data (L10) -> /system/bin/su [SINK]"
               },
               "total_matches": 2,
               "matches": [
