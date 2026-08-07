@@ -69,7 +69,7 @@ class Finding:
 
     def to_dict(self) -> Dict[str, Any]:
         """
-        Serializes finding object to dictionary schema matching target JSON report.
+        Serializes finding object to dictionary schema matching legacy JSON report.
         
         @return Dict[str, Any] Serialized dictionary representation of finding payload.
         """
@@ -81,6 +81,32 @@ class Finding:
             "severity": self.severity,
             "confidence": self.confidence,
             "location": self.location.to_dict(),
+            "target_variable": self.target_variable,
+            "trigger_line": self.trigger_line,
+            "flow_analysis": self.flow_analysis.to_dict(),
+        }
+        if self.total_matches > 1:
+            d["total_matches"] = self.total_matches
+            if self.matches is not None:
+                d["matches"] = self.matches
+        return d
+
+    def to_scoped_dict(self) -> Dict[str, Any]:
+        """
+        Serializes finding object for 4-level hierarchical report schema.
+        Removes redundant function_name, symbol_address, and is_exported_jni which are inherited
+        from Level 3 parent function object. Keeps line_number inside location or directly.
+        
+        @return Dict[str, Any] Scoped finding dictionary.
+        """
+        d = {
+            "finding_id": self.finding_id,
+            "rule_id": self.rule_id,
+            "cwe_id": self.cwe_id,
+            "masvs_id": self.masvs_id,
+            "severity": self.severity,
+            "confidence": self.confidence,
+            "line_number": self.location.line_number,
             "target_variable": self.target_variable,
             "trigger_line": self.trigger_line,
             "flow_analysis": self.flow_analysis.to_dict(),

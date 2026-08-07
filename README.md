@@ -172,75 +172,78 @@ The engine produces a standardized 3-Tier JSON report containing executive metri
           "vulnerable_jni_functions": 15
         }
       },
-      "functions_code_scope": {
-        "Java_com_example_app_NativeLib_executeCmd": [
-          "/* Function: Java_com_example_app_NativeLib_executeCmd */",
-          "JNIEXPORT jstring JNICALL",
-          "Java_com_example_app_NativeLib_executeCmd(JNIEnv *env, jobject thiz, jstring j_cmd) {",
-          "    char command_buf[512];",
-          "    const char* user_input = (*env)->GetStringUTFChars(env, j_cmd, 0);",
-          "    sprintf(command_buf, \"/system/bin/ping -c 1 %s\", user_input);",
-          "    system(command_buf);",
-          "    (*env)->ReleaseStringUTFChars(env, j_cmd, user_input);",
-          "    return (*env)->NewStringUTF(env, \"OK\");",
-          "}"
-        ]
-      },
-      "findings": [
+      "functions": [
         {
-          "finding_id": "FIND-01",
-          "rule_id": "INJ-001",
-          "cwe_id": "CWE-78",
-          "masvs_id": "MASVS-CODE-2",
-          "severity": "CRITICAL",
-          "confidence": "HIGH",
-          "location": {
-            "function_name": "Java_com_example_app_NativeLib_executeCmd",
-            "symbol_address": "0x00002b40",
-            "line_number": 7,
-            "is_exported_jni": true
-          },
-          "target_variable": "command_buf",
-          "trigger_line": "system(command_buf);",
-          "flow_analysis": {
-            "source": "JNI String parameter 'user_input' passed from Java layer at line 5",
-            "sink": "Unsanitized command execution via system() call at line 7",
-            "trigger_line_number": 7
-          }
+          "function_name": "Java_com_example_app_NativeLib_executeCmd",
+          "symbol_address": "0x00002b40",
+          "is_exported_jni": true,
+          "source_code": [
+            "/* Function: Java_com_example_app_NativeLib_executeCmd */",
+            "JNIEXPORT jstring JNICALL",
+            "Java_com_example_app_NativeLib_executeCmd(JNIEnv *env, jobject thiz, jstring j_cmd) {",
+            "    char command_buf[512];",
+            "    const char* user_input = (*env)->GetStringUTFChars(env, j_cmd, 0);",
+            "    sprintf(command_buf, \"/system/bin/ping -c 1 %s\", user_input);",
+            "    system(command_buf);",
+            "    (*env)->ReleaseStringUTFChars(env, j_cmd, user_input);",
+            "    return (*env)->NewStringUTF(env, \"OK\");",
+            "}"
+          ],
+          "findings": [
+            {
+              "finding_id": "FIND-01",
+              "rule_id": "INJ-001",
+              "cwe_id": "CWE-78",
+              "masvs_id": "MASVS-CODE-2",
+              "severity": "CRITICAL",
+              "confidence": "HIGH",
+              "line_number": 7,
+              "target_variable": "command_buf",
+              "trigger_line": "system(command_buf);",
+              "flow_analysis": {
+                "source": "JNI String parameter 'user_input' passed from Java layer at line 5",
+                "sink": "Unsanitized command execution via system() call at line 7",
+                "trigger_line_number": 7
+              }
+            }
+          ]
         },
         {
-          "finding_id": "FIND-02",
-          "rule_id": "FRD-001",
-          "cwe_id": "CWE-693",
-          "masvs_id": "MASVS-RESILIENCE-2",
-          "severity": "HIGH",
-          "confidence": "HIGH",
-          "location": {
-            "function_name": "N/A (Static Data Section)",
-            "symbol_address": "N/A",
-            "line_number": 10,
-            "is_exported_jni": false
-          },
-          "target_variable": "/system/bin/su",
-          "trigger_line": "if (access(\"/system/bin/su\", F_OK) == 0)",
-          "flow_analysis": {
-            "source": "Hardcoded static binary string artifact",
-            "sink": "Unsanitized reference via pattern '/system/bin/su' at line 10",
-            "trigger_line_number": 10
-          },
-          "total_matches": 2,
-          "matches": [
+          "function_name": "N/A (Static Data Section)",
+          "symbol_address": "N/A",
+          "is_exported_jni": false,
+          "source_code": [],
+          "findings": [
             {
-              "match_id": "FIND-02-1",
+              "finding_id": "FIND-02",
+              "rule_id": "FRD-001",
+              "cwe_id": "CWE-693",
+              "masvs_id": "MASVS-RESILIENCE-2",
+              "severity": "HIGH",
+              "confidence": "HIGH",
               "line_number": 10,
               "target_variable": "/system/bin/su",
-              "trigger_line": "if (access(\"/system/bin/su\", F_OK) == 0)"
-            },
-            {
-              "match_id": "FIND-02-2",
-              "line_number": 22,
-              "target_variable": "/system/xbin/su",
-              "trigger_line": "if (access(\"/system/xbin/su\", F_OK) == 0)"
+              "trigger_line": "/* String artifact */ \"/system/bin/su\";",
+              "flow_analysis": {
+                "source": "Hardcoded static binary string artifact",
+                "sink": "Unsanitized reference via pattern '/system/bin/su' at line 10",
+                "trigger_line_number": 10
+              },
+              "total_matches": 2,
+              "matches": [
+                {
+                  "match_id": "FIND-02-1",
+                  "line_number": 10,
+                  "target_variable": "/system/bin/su",
+                  "trigger_line": "/* String artifact */ \"/system/bin/su\";"
+                },
+                {
+                  "match_id": "FIND-02-2",
+                  "line_number": 22,
+                  "target_variable": "/system/xbin/su",
+                  "trigger_line": "/* String artifact */ \"/system/xbin/su\";"
+                }
+              ]
             }
           ]
         }

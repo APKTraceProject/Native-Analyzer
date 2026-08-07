@@ -44,7 +44,6 @@ class JSONReporter:
             file_conf = {"HIGH": 0, "MEDIUM": 0, "LOW": 0}
             file_cat: Dict[str, int] = {}
 
-            findings_json = []
             vulnerable_jni_count = 0
             vulnerable_jni_funcs = set()
 
@@ -95,9 +94,6 @@ class JSONReporter:
                 if f.location.is_exported_jni:
                     vulnerable_jni_funcs.add(f.location.function_name)
 
-                f_dict = f.to_dict()
-                findings_json.append(f_dict)
-
             vulnerable_jni_count = len(vulnerable_jni_funcs)
 
             # Filter real functions excluding synthetic string metadata sections
@@ -106,18 +102,58 @@ class JSONReporter:
                 if f.name != "global_strings_section" and not f.name.endswith("_section") and not f.name.endswith("_strings")
             ]
 
-            functions_code_scope = binary.functions_code_scope
-            if not functions_code_scope:
-                functions_code_scope = {
-                    f.name: f.code_lines for f in real_functions
-                }
+            # Group findings by function name
+            findings_by_function: Dict[str, List[Finding]] = {}
+            for f in findings:
+                func_name = f.location.function_name
+                if func_name not in findings_by_function:
+                    findings_by_function[func_name] = []
+                findings_by_function[func_name].append(f)
+
+            # Construct Level 3 function objects with Level 4 findings embedded
+            functions_list = []
+            seen_function_names = set()
+
+            # Process real functions
+            for func in real_functions:
+                seen_function_names.add(func.name)
+                func_findings = findings_by_function.get(func.name, [])
+                scoped_findings = [f.to_scoped_dict() for f in func_findings]
+
+                functions_list.append({
+                    "function_name": func.name,
+                    "symbol_address": func.address,
+                    "is_exported_jni": func.is_exported_jni,
+                    "source_code": func.code_lines,
+                    "findings": scoped_findings
+                })
+
+            # Check for static / non-function findings or virtual function blocks
+            static_func_name = "N/A (Static Data Section)"
+            static_findings = findings_by_function.get(static_func_name, [])
+            
+            # Also check if there are any findings assigned to function names not present in real_functions
+            unmapped_findings = []
+            for func_name, func_findings in findings_by_function.items():
+                if func_name != static_func_name and func_name not in seen_function_names:
+                    unmapped_findings.extend(func_findings)
+
+            all_static_findings = static_findings + unmapped_findings
+
+            if all_static_findings:
+                functions_list.append({
+                    "function_name": static_func_name,
+                    "symbol_address": "N/A",
+                    "is_exported_jni": False,
+                    "source_code": [],
+                    "findings": [f.to_scoped_dict() for f in all_static_findings]
+                })
 
             target_entry = {
                 "file_name": binary.file_name,
                 "apk_relative_path": binary.apk_relative_path,
                 "abi_architecture": binary.abi_architecture,
                 "sha256": binary.sha256,
-                "functions_code_scope": functions_code_scope,
                 "target_summary": {
                     "file_findings_count": len(findings),
                     "by_severity": file_sev,
@@ -129,7 +165,7 @@ class JSONReporter:
                         "vulnerable_jni_functions": vulnerable_jni_count
                     }
                 },
-                "findings": findings_json
+                "functions": functions_list
             }
             targets_json_list.append(target_entry)
 

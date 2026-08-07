@@ -224,7 +224,11 @@ The architecture comprises a modular pipeline:
 
 ## JSON Output Report Structure
 
-The scanner outputs structured JSON results adhering to the following schema:
+The scanner outputs structured JSON results adhering to a 4-level hierarchical schema:
+- **Level 1**: Global Scan Summary (`summary`)
+- **Level 2**: Target Binary Scope (`targets[]`)
+- **Level 3**: Function Objects (`functions[]`)
+- **Level 4**: Granular Findings (`functions[].findings[]`)
 
 ```json
 {
@@ -254,76 +258,87 @@ The scanner outputs structured JSON results adhering to the following schema:
       "apk_relative_path": "standalone/libnative.so",
       "abi_architecture": "arm64-v8a",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "functions_code_scope": {
-        "Java_com_example_app_NativeLib_processInput": [
-          "/* Function: Java_com_example_app_NativeLib_processInput */",
-          "JNIEXPORT jstring JNICALL",
-          "Java_com_example_app_NativeLib_processInput(JNIEnv *env, jobject thiz, jstring j_str) {",
-          "    char dest_buf[512];",
-          "    const char* user_str = (*env)->GetStringUTFChars(env, j_str, 0);",
-          "    strcpy(dest_buf, user_str);",
-          "    return (*env)->NewStringUTF(env, \"OK\");",
-          "}"
-        ]
-      },
       "target_summary": {
-        "file_findings_count": 15
+        "file_findings_count": 15,
+        "by_severity": { "CRITICAL": 3, "HIGH": 6, "MEDIUM": 4, "LOW": 2 },
+        "by_confidence": { "HIGH": 12, "MEDIUM": 3, "LOW": 0 },
+        "by_category": { "Buffer Overflow": 2, "Command Injection": 2 },
+        "attack_surface_metrics": {
+          "total_functions_scanned": 8,
+          "exported_jni_functions": 2,
+          "vulnerable_jni_functions": 2
+        }
       },
-      "findings": [
+      "functions": [
         {
-          "finding_id": "FIND-01",
-          "rule_id": "BOF-002",
-          "cwe_id": "CWE-120",
-          "masvs_id": "MASVS-CODE-2",
-          "severity": "CRITICAL",
-          "confidence": "HIGH",
-          "location": {
-            "function_name": "Java_com_example_app_NativeLib_processInput",
-            "symbol_address": "0x00002b20",
-            "line_number": 6,
-            "is_exported_jni": true
-          },
-          "target_variable": "dest_buf",
-          "trigger_line": "strcpy(dest_buf, user_str);",
-          "flow_analysis": {
-            "source": "JNI or internal parameter passed to function 'Java_com_example_app_NativeLib_processInput' at line 5",
-            "sink": "Unsanitized call via pattern 'strcpy' at line 6",
-            "trigger_line_number": 6
-          }
+          "function_name": "Java_com_example_app_NativeLib_processInput",
+          "symbol_address": "0x00002b20",
+          "is_exported_jni": true,
+          "source_code": [
+            "/* Function: Java_com_example_app_NativeLib_processInput */",
+            "JNIEXPORT jstring JNICALL",
+            "Java_com_example_app_NativeLib_processInput(JNIEnv *env, jobject thiz, jstring j_str) {",
+            "    char dest_buf[512];",
+            "    const char* user_str = (*env)->GetStringUTFChars(env, j_str, 0);",
+            "    strcpy(dest_buf, user_str);",
+            "    return (*env)->NewStringUTF(env, \"OK\");",
+            "}"
+          ],
+          "findings": [
+            {
+              "finding_id": "FIND-01",
+              "rule_id": "BOF-002",
+              "cwe_id": "CWE-120",
+              "masvs_id": "MASVS-CODE-2",
+              "severity": "CRITICAL",
+              "confidence": "HIGH",
+              "line_number": 6,
+              "target_variable": "dest_buf",
+              "trigger_line": "strcpy(dest_buf, user_str);",
+              "flow_analysis": {
+                "source": "JNI or internal parameter passed to function 'Java_com_example_app_NativeLib_processInput' at line 5",
+                "sink": "Unsanitized call via pattern 'strcpy' at line 6",
+                "trigger_line_number": 6
+              }
+            }
+          ]
         },
         {
-          "finding_id": "FIND-02",
-          "rule_id": "FRD-001",
-          "cwe_id": "CWE-693",
-          "masvs_id": "MASVS-RESILIENCE-2",
-          "severity": "HIGH",
-          "confidence": "HIGH",
-          "location": {
-            "function_name": "N/A (Static Data Section)",
-            "symbol_address": "N/A",
-            "line_number": 10,
-            "is_exported_jni": false
-          },
-          "target_variable": "/system/bin/su",
-          "trigger_line": "if (access(\"/system/bin/su\", F_OK) == 0)",
-          "flow_analysis": {
-            "source": "Hardcoded static binary string artifact",
-            "sink": "Unsanitized reference via pattern '/system/bin/su' at line 10",
-            "trigger_line_number": 10
-          },
-          "total_matches": 2,
-          "matches": [
+          "function_name": "N/A (Static Data Section)",
+          "symbol_address": "N/A",
+          "is_exported_jni": false,
+          "source_code": [],
+          "findings": [
             {
-              "match_id": "FIND-02-1",
+              "finding_id": "FIND-02",
+              "rule_id": "FRD-001",
+              "cwe_id": "CWE-693",
+              "masvs_id": "MASVS-RESILIENCE-2",
+              "severity": "HIGH",
+              "confidence": "HIGH",
               "line_number": 10,
               "target_variable": "/system/bin/su",
-              "trigger_line": "if (access(\"/system/bin/su\", F_OK) == 0)"
-            },
-            {
-              "match_id": "FIND-02-2",
-              "line_number": 22,
-              "target_variable": "/system/xbin/su",
-              "trigger_line": "if (access(\"/system/xbin/su\", F_OK) == 0)"
+              "trigger_line": "/* String artifact */ \"/system/bin/su\";",
+              "flow_analysis": {
+                "source": "Hardcoded static binary string artifact",
+                "sink": "Unsanitized reference via pattern '/system/bin/su' at line 10",
+                "trigger_line_number": 10
+              },
+              "total_matches": 2,
+              "matches": [
+                {
+                  "match_id": "FIND-02-1",
+                  "line_number": 10,
+                  "target_variable": "/system/bin/su",
+                  "trigger_line": "/* String artifact */ \"/system/bin/su\";"
+                },
+                {
+                  "match_id": "FIND-02-2",
+                  "line_number": 22,
+                  "target_variable": "/system/xbin/su",
+                  "trigger_line": "/* String artifact */ \"/system/xbin/su\";"
+                }
+              ]
             }
           ]
         }
