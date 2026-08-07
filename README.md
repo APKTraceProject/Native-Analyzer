@@ -1,6 +1,15 @@
 # APKTrace - Native Analysis Engine
 
-**APKTrace - Native Analysis Engine** is a high-performance static vulnerability analysis framework for Android dynamic native libraries (`.so` / ELF binaries). It performs automated disassembly, ARM64/ARMv7 pseudo-C AST reconstruction, symbol extraction, and multi-pattern AST taint flow analysis across 15 critical security categories.
+**APKTrace - Native Analysis Engine** is a high-performance static vulnerability analysis framework for Android dynamic native libraries (`.so` / ELF binaries) operating in **Single Mode** (`.so`) or **Multi Mode** (`.apk`). It performs automated disassembly, ARM64/ARMv7 pseudo-C AST reconstruction, symbol extraction, and multi-pattern AST taint flow analysis across 15 critical security categories.
+
+### ✨ Key Features
+- **Dual Operating Modes**:
+  - **Single Mode (`.so`)**: Analyzes individual compiled shared object binaries directly.
+  - **Multi Mode (`.apk`)**: Automatically extracts and scans all embedded `.so` binaries from Android APK packages.
+- **Symbol & AST Reconstruction**: Ghidra Headless integration paired with a zero-dependency cross-platform fallback decompiler.
+- **JNI AST Taint Flow Analysis**: Traces unsanitized user inputs from JNI entrypoints (`GetStringUTFChars`, `GetByteArrayElements`) into high-risk memory, format string, and system execution sinks.
+- **15 Category Vulnerability Matrix**: 66 specialized sub-rules detecting Buffer Overflows, Command Injections, JNI Leaks, Cryptography Flaws, Permission Flaws, and Anti-Analysis controls.
+- **Modern CLI Terminal UI**: ASCII art banner, Execution Metadata display, real-time progress indicators, and Post-Scan Summary tables.
 
 ---
 
@@ -34,7 +43,7 @@
                                               │
                                               ▼
                              ┌─────────────────────────────────┐
-                             │    3-Tier JSON Report Output    │
+                             │    4-Tier JSON Report Output    │
                              └─────────────────────────────────┘
 ```
 
@@ -102,42 +111,143 @@ pip install pyyaml
 
 ## 🛠️ Usage Modes
 
-### 1. Command-Line Interface (`cli.py`)
-Run automated security analysis on target dynamic libraries using flags or configuration file:
+### 1. Configuration Setup
+Copy the example CLI configuration template to create your local config file:
 
 ```bash
-# Standard CLI invocation with target library and output path
+cp config/cli_config.example.yaml config/cli_config.yaml
+```
+
+Edit `config/cli_config.yaml` to configure your target file, output path, and optional Ghidra path:
+
+```yaml
+target_path: "./tests/app.apk"
+output_json_path: "./output/report.json"
+ghidra_headless_path: null
+```
+
+#### Configuration Parameters
+- **`target_path`**: Accepts either a single dynamic native library path (`.so` for Single Mode) or a full Android application package (`.apk` for Multi Mode).
+- **`output_json_path`**: File path destination where the final 3-tier structured JSON report will be exported.
+- **`ghidra_headless_path`**: Optional path to Ghidra's `analyzeHeadless` script (e.g. `C:\Ghidra\support\analyzeHeadless.bat` or `/opt/ghidra/support/analyzeHeadless`). If set to `null` or omitted, the scanner automatically falls back to its zero-dependency cross-platform heuristic parser.
+
+---
+
+### 2. Command-Line Interface (`cli.py`)
+Run automated security analysis directly from the command line:
+
+```bash
+# Single Mode: Run analysis on a standalone .so dynamic library
 python cli.py -t ./tests/libnative.so -o ./output/report.json
 
-# Run test scan using config/cli_config.yaml
+# Multi Mode: Run analysis on an .apk archive (extracts & scans all .so binaries inside)
+python cli.py -t ./tests/app.apk -o ./output/report.json
+
+# Custom Config: Run scan using a custom YAML configuration file
+python cli.py -c config/custom_config.yaml
+
+# Default Run: Uses settings from config/cli_config.yaml (or config/cli_config.example.yaml fallback)
 python cli.py
 ```
 
-### 2. Python API Module Mode
-Integrate directly into automated frameworks or orchestrators:
+#### Terminal Output & UI Features
+The CLI provides a modernized visual interface featuring an ASCII art banner, execution metadata table, step progress indicators, and post-scan statistical summary table:
+
+```
+    _   ___ _  _______                    
+   /_\ | _ \ |/ /_   _| __ __ _ ___ ___   
+  / _ \|  _/ ' <  | | | '__/ _` / _| _/   
+ /_/ \_\_| |_|\_\ |_| |_|  \__,_\__|___|  
+
+  APKTrace - Native Analysis Module
+  Specialized native binary analysis sub-component of the APKTrace ecosystem
+======================================================================
+ [+] [INFO] Loading configuration & rules...
+ [+] [INFO] Config loaded successfully from 'config/cli_config.example.yaml'.
+
+----------------------------------------------------------------------
+ EXECUTION METADATA
+----------------------------------------------------------------------
+  * Mode:                    MULTI (.apk)
+  * Target File:             ./tests/app.apk
+  * Output Path:             ./output/report.json
+  * Identified Binaries:     2 target(s)
+----------------------------------------------------------------------
+
+ [*] [SCAN] Extracting native targets from APK archive 'app.apk'...
+ [*] [SCAN] Decompiling & analyzing symbols via Ghidra...
+ [*] [TAINT] Running variable flow analysis & JNI context extraction...
+ [✔] [SUCCESS] Report generated successfully at ./output/report.json
+
+======================================================================
+                      SCAN SUMMARY RESULTS                            
+======================================================================
+  Total Target Files Scanned : 2
+  Total Vulnerabilities Found: 8
+----------------------------------------------------------------------
+  SEVERITY BREAKDOWN
+----------------------------------------------------------------------
+   CRITICAL :  2
+   HIGH     :  4
+   MEDIUM   :  0
+   LOW      :  2
+----------------------------------------------------------------------
+  TOP CATEGORIES DETECTED
+----------------------------------------------------------------------
+   JNI Boundary Leak                  : 4
+   Buffer Overflow                    : 2
+   Command Injection                  : 2
+======================================================================
+```
+
+---
+
+### 3. Python API & SDK Integration
+Integrate the native analysis engine directly into custom Python tools, CI/CD pipelines, or orchestrators:
 
 ```python
-from native_analysis.core.engine import ScanEngine
+import native_analysis as apk_trace
+from native_analysis import ScanEngine
 from native_analysis.reporters.json_reporter import JSONReporter
 
-# Initialize scan engine
+# ---------------------------------------------------------
+# Approach A: Top-Level Convenience API
+# ---------------------------------------------------------
+
+# Single Mode: Scan a standalone .so dynamic library
+parsed_binary, findings = apk_trace.scan_single("path/to/libnative.so")
+
+# Multi Mode: Extract and scan all .so libraries inside an .apk archive
+scanned_targets = apk_trace.scan_multi("path/to/app.apk")
+
+# Auto-Detect Mode: Automatically checks file extension (.so or .apk)
+scanned_targets = apk_trace.scan("path/to/target_file")
+
+
+# ---------------------------------------------------------
+# Approach B: Object-Oriented ScanEngine API
+# ---------------------------------------------------------
+
+# Initialize engine with rule definitions and optional Ghidra decompiler path
 engine = ScanEngine(
     rules_path="config/rules.yaml",
-    ghidra_headless_path=None  # Set Ghidra analyzeHeadless path if available
+    ghidra_headless_path="/path/to/ghidra/support/analyzeHeadless"
 )
 
-# Execute security scan against dynamic library
-parsed_binary, findings = engine.scan_target(
-    target_so_path="./tests/libnative.so",
-    apk_relative_path="standalone/libnative-lib.so"
-)
+# Single Mode (.so)
+parsed_binary, findings = engine.scan_single("path/to/libnative.so")
 
-# Export structured report
-report = JSONReporter.generate_report(
-    scanned_targets=[(parsed_binary, findings)],
+# Multi Mode (.apk)
+scanned_targets = engine.scan_multi("path/to/app.apk")
+
+# Auto-detecting scan (.so or .apk)
+scanned_targets = engine.scan("path/to/target_file")
+
+# Export structured JSON report artifact
+report_dict = JSONReporter.generate_report(
+    scanned_targets=scanned_targets,
     output_file_path="./output/report.json"
 )
-print(f"Scan complete. Total findings: {len(findings)}")
 ```
 
 ---

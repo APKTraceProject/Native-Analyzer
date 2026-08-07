@@ -5,6 +5,8 @@ Scan Engine orchestrator executing all 15 analyzers, managing deduplication and 
 import os
 import sys
 import traceback
+import zipfile
+import tempfile
 from typing import List, Dict, Any, Tuple, Optional
 from native_analysis.models.parsed_binary import ParsedBinary
 from native_analysis.models.finding import Finding
@@ -229,6 +231,138 @@ class ScanEngine:
             final_findings.append(base_finding)
 
         return final_findings
+
+    def resolve_target(
+        self,
+        target_path: str,
+        temp_dir: Optional[str] = None
+    ) -> List[Tuple[str, str]]:
+        """
+        Resolves target input path using strict 2-mode policy:
+        - Single Mode (.so): returns [(resolved_target_path, "standalone/<filename>")]
+        - Multi Mode (.apk): extracts all .so binaries inside to temp_dir and returns list of [(extracted_so_path, apk_relative_path)]
+        
+        Throws explicit error for missing file or invalid extension (not .so or .apk).
+        
+        @param target_path Path to .so or .apk target file.
+        @param temp_dir Optional directory path to extract APK contents.
+        @return List[Tuple[str, str]] List of (extracted_or_local_so_path, relative_report_path) tuples.
+        """
+        resolved_path = ConfigLoader.resolve_target_path(target_path)
+        if not resolved_path or not os.path.exists(resolved_path):
+            raise FileNotFoundError(f"Target file '{target_path}' not found.")
+        target_path = resolved_path
+
+        ext = os.path.splitext(target_path)[1].lower()
+        if ext == ".so":
+            filename = os.path.basename(target_path)
+            return [(target_path, f"standalone/{filename}")]
+        elif ext == ".apk":
+            if not zipfile.is_zipfile(target_path):
+                raise ValueError(f"Target file '{target_path}' is not a valid zip/APK archive.")
+
+            with zipfile.ZipFile(target_path, "r") as zf:
+                so_entries = [name for name in zf.namelist() if name.lower().endswith(".so")]
+                if not so_entries:
+                    raise ValueError(f"No .so dynamic libraries found inside APK archive '{target_path}'.")
+
+                dest_dir = temp_dir or tempfile.mkdtemp(prefix="apktrace_apk_")
+                resolved_targets = []
+                for entry in so_entries:
+                    extracted_file = zf.extract(entry, path=dest_dir)
+                    resolved_targets.append((extracted_file, entry))
+                return resolved_targets
+        else:
+            raise ValueError(
+                f"Invalid target file extension '{ext}' for '{target_path}'. "
+                "Only .so (Single Mode) and .apk (Multi Mode) files are supported."
+            )
+
+    def scan_single(
+        self,
+        so_path: str,
+        apk_relative_path: Optional[str] = None
+    ) -> Tuple[ParsedBinary, List[Finding]]:
+        """
+        Executes single mode security scan against a .so dynamic library binary.
+        Throws explicit error if extension is not .so.
+        
+        @param so_path Path to .so binary file.
+        @param apk_relative_path Optional relative path string for report payload.
+        @return Tuple[ParsedBinary, List[Finding]] AST payload and findings.
+        """
+        resolved_path = ConfigLoader.resolve_target_path(so_path)
+        if not resolved_path or not os.path.exists(resolved_path):
+            raise FileNotFoundError(f"Target file '{so_path}' not found.")
+        so_path = resolved_path
+
+        ext = os.path.splitext(so_path)[1].lower()
+        if ext != ".so":
+            raise ValueError(f"Invalid target file extension '{ext}' for scan_single(). Expected a .so file.")
+
+        return self.scan_target(target_so_path=so_path, apk_relative_path=apk_relative_path)
+
+    def scan_multi(
+        self,
+        apk_path: str
+    ) -> List[Tuple[ParsedBinary, List[Finding]]]:
+        """
+        Executes multi mode security scan against an APK archive by extracting and scanning ALL .so binaries inside (no ABI filtering).
+        Throws explicit error if extension is not .apk.
+        
+        @param apk_path Path to .apk app archive file.
+        @return List[Tuple[ParsedBinary, List[Finding]]] List of (ParsedBinary, List[Finding]) scan targets.
+        """
+        resolved_path = ConfigLoader.resolve_target_path(apk_path)
+        if not resolved_path or not os.path.exists(resolved_path):
+            raise FileNotFoundError(f"Target file '{apk_path}' not found.")
+        apk_path = resolved_path
+
+        ext = os.path.splitext(apk_path)[1].lower()
+        if ext != ".apk":
+            raise ValueError(f"Invalid target file extension '{ext}' for scan_multi(). Expected an .apk file.")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            targets = self.resolve_target(apk_path, temp_dir=temp_dir)
+            results = []
+            for extracted_so, rel_path in targets:
+                parsed_binary, findings = self.scan_target(
+                    target_so_path=extracted_so,
+                    apk_relative_path=rel_path
+                )
+                results.append((parsed_binary, findings))
+            return results
+
+    def scan(
+        self,
+        file_path: str
+    ) -> List[Tuple[ParsedBinary, List[Finding]]]:
+        """
+        Auto-detecting scan engine entry point supporting strict 2-mode resolution:
+        - Single Mode (.so): Scans single binary and returns list with 1 scan result tuple.
+        - Multi Mode (.apk): Extracts all .so binaries inside and returns list of scan result tuples.
+        
+        Throws explicit error for invalid extensions.
+        
+        @param file_path Path to target .so or .apk file.
+        @return List[Tuple[ParsedBinary, List[Finding]]] Scanned targets list.
+        """
+        resolved_path = ConfigLoader.resolve_target_path(file_path)
+        if not resolved_path or not os.path.exists(resolved_path):
+            raise FileNotFoundError(f"Target file '{file_path}' not found.")
+        file_path = resolved_path
+
+        ext = os.path.splitext(file_path)[1].lower()
+        if ext == ".so":
+            parsed_binary, findings = self.scan_single(file_path)
+            return [(parsed_binary, findings)]
+        elif ext == ".apk":
+            return self.scan_multi(file_path)
+        else:
+            raise ValueError(
+                f"Invalid target file extension '{ext}' for '{file_path}'. "
+                "Only .so (Single Mode) and .apk (Multi Mode) files are supported."
+            )
 
     def run(
         self,

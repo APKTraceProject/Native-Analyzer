@@ -1,76 +1,161 @@
-# Android Native Binary Vulnerability Scanner Architecture
+# APKTrace - Native Analysis Module Architecture
 
 ## Overview
 
-The **APKTrace - Native Security Analysis Engine** is an automated static vulnerability scanner designed to detect security defects, memory safety flaws, insecure API usage, and embedded anti-analysis controls inside compiled Android shared libraries (`.so` files across ARM64, ARMv7, x86, and x86_64 architectures).
+The **APKTrace - Native Analysis Module** is a high-performance static vulnerability analysis engine designed to detect security defects, memory safety flaws, insecure API usage, and embedded anti-analysis controls inside compiled Android dynamic native libraries (`.so` files across ARM64, ARMv7, x86, and x86_64 architectures) as well as full Android application packages (`.apk`).
 
-The architecture comprises a modular pipeline:
-1. **Binary Ingestion & Header Parser** (`GhidraParser`)
-2. **Decompilation & Heuristic Symbol Mapper** (Ghidra Headless primary / Cross-Platform Fallback)
-3. **Core Scan Engine** (`ScanEngine`)
-4. **Abstract Rule Engine & Analyzers** (`BaseAnalyzer` + 15 specialized vulnerability classes)
-5. **JSON Report Generator** (`JsonReporter`)
-
-7. **Shared Analysis Context Layer** (`AnalysisContext` & `ContextBuilder`)
+Operating as a specialized native binary analysis sub-component of the broader APKTrace security ecosystem, the module supports two primary execution modes:
+- **Single Mode (`.so`)**: Analyzes standalone compiled ELF shared object binaries directly.
+- **Multi Mode (`.apk`)**: Automatically unpacks Android APK packages, locates all embedded native dynamic libraries (`lib/<abi>/*.so`), extracts them to an isolated workspace, and executes batch security analysis across all targets.
 
 ---
 
 ## Technical Pipeline Architecture
 
 ```
-  ┌──────────────────────────────┐
-  │ Target Shared Library (.so) │
-  └──────────────┬───────────────┘
-                 │
-                 ▼
- ┌──────────────────────────────────────────────┐
- │ ContextBuilder / AnalysisContext Pipeline   │
- │ - Computes SHA-256 Digest & Header Info      │
- │ - Detects ABI Architecture (ARM64, x86, etc.) │
- │ - Pre-extracts Hardening Flags & Symbols     │
- │ - Populates String Artifacts & Code Scope    │
- └──────────────┬───────────────────────────────┘
-                │
-        ┌───────┴────────────────────────┐
-        │ Decompiler & Parser Pipeline   │
-        └───────┬────────────────┬───────┘
-                │ Ghidra         │ Fallback Parser
-                ▼                ▼
-  ┌───────────────────┐  ┌────────────────────────────────────┐
-  │ Ghidra Headless   │  │ Cross-Platform Fallback Parser     │
-  │ Jython Decompiler │  │ - Extract ASCII / UTF-8 Strings     │
-  │ Output JSON       │  │ - Symbol Matching & Heuristic      │
-  │ Export            │  │   Decompiled C Code Generation    │
-  └─────────┬─────────┘  └─────────────────┬──────────────────┘
-            │                              │
-            └──────────────┬───────────────┘
-                           │
-                           ▼
-            ┌─────────────────────────────┐
-            │ Centralized AnalysisContext │
-            └──────────────┬──────────────┘
-                           │
-                           ▼
-            ┌─────────────────────────────┐
-            │ ScanEngine Workflow          │
-            │ Iterates Active Analyzers   │
-            └──────────────┬──────────────┘
-                           │
-                           ▼
-   ┌───────────────────────────────────────────────┐
-   │ 15 Vulnerability Analyzers (BaseAnalyzer)     │
-   │ - Signature Pattern Matching                  │
-   │ - Scope-level Deduplication                   │
-   │ - 20-Line Memory Context Window Formatting   │
-   │ - Source / Sink Data Flow Trace Assembly      │
-   └──────────────┬────────────────────────────────┘
-                  │
-                  ▼
-   ┌───────────────────────────────────────────────┐
-   │ JsonReporter Output Assembly                 │
-   │ Exports Final Vulnerability Audit Report      │
-   └───────────────────────────────────────────────┘
+                             [ Input Target File: .so or .apk ]
+                                            │
+                                            ▼
+                           ┌─────────────────────────────────┐
+                           │     Target Resolution Layer     │
+                           │        (TargetResolver)         │
+                           └────────────────┬────────────────┘
+                                            │
+                    ┌───────────────────────┴───────────────────────┐
+                    │ Single Mode (.so)                     │ Multi Mode (.apk)
+                    ▼                                       ▼
+     ┌─────────────────────────────┐         ┌─────────────────────────────┐
+     │  Direct Target File Path    │         │  Extract .so Targets from   │
+     │  (standalone .so binary)    │         │  lib/<abi>/ into Temp Dir   │
+     └──────────────┬──────────────┘         └──────────────┬──────────────┘
+                    │                                       │
+                    └───────────────────────┬───────────────┘
+                                            │
+                                            ▼
+                         ┌────────────────────────────────────┐
+                         │  AnalysisContext / ContextBuilder  │
+                         │ - Compute SHA-256 Digest           │
+                         │ - Detect ABI Architecture          │
+                         │ - Extract Mitigations (Canary, NX) │
+                         │ - Pre-extract Strings & Entropy    │
+                         └──────────────────┬─────────────────┘
+                                            │
+                                            ▼
+                         ┌────────────────────────────────────┐
+                         │    Decompilation & Parser Layer    │
+                         │   (Ghidra Headless / Heuristic)    │
+                         │ - Pseudo-C AST Reconstruction      │
+                         │ - Symbol Table & Scope Mapping     │
+                         │ - JNI Symbol Normalization         │
+                         └──────────────────┬─────────────────┘
+                                            │
+                                            ▼
+                         ┌────────────────────────────────────┐
+                         │         Core ScanEngine            │
+                         │ Iterates 15 Class Analyzers        │
+                         └──────────────────┬─────────────────┘
+                                            │
+                                            ▼
+                         ┌────────────────────────────────────┐
+                         │    15 Vulnerability Analyzers      │
+                         │ - Pattern Matching (66 Sub-Rules)  │
+                         │ - Context Window (20-Line AST)     │
+                         │ - AST Taint Flow Analysis          │
+                         │ - Selective Finding Aggregation    │
+                         └──────────────────┬─────────────────┘
+                                            │
+                                            ▼
+                         ┌────────────────────────────────────┐
+                         │    4-Level JSON Report Generator   │
+                         │   Summary -> Targets -> Functions  │
+                         └──────────────────┬─────────────────┘
+                                            │
+                                            ▼
+                         ┌────────────────────────────────────┐
+                         │       CLI Terminal UI Renderer     │
+                         │ - Banner & Execution Metadata      │
+                         │ - Progress Indicators              │
+                         │ - Post-Scan Summary Tables         │
+                         └────────────────────────────────────┘
 ```
+
+---
+
+## Technical Pipeline Stages
+
+### Stage 1: Input Target Resolution (`TargetResolver`)
+- **Mode Auto-Detection**: Inspects the target file extension provided via configuration (`target_path`) or CLI argument (`-t / --target`).
+  - `.so` -> Executes **Single Mode**.
+  - `.apk` -> Executes **Multi Mode**.
+- **Archive Unpacking**: For `.apk` files, `TargetResolver` opens the ZIP payload, identifies all dynamic libraries located under `lib/arm64-v8a/`, `lib/armeabi-v7a/`, `lib/x86_64/`, or `lib/x86/`, and extracts them into a sandboxed temporary directory.
+- **Cleanup**: Temporarily extracted files are automatically tracked and removed upon completion of the analysis run.
+
+### Stage 2: Shared Analysis Context Layer (`ContextBuilder` & `AnalysisContext`)
+- **Centralized Pre-Extraction**: `ContextBuilder` initializes an immutable `AnalysisContext` data object prior to running analyzer passes.
+- **Pre-Calculated Attributes**:
+  - `binary_info`: Basic target file metadata (file name, relative path, ABI architecture, SHA-256 digest).
+  - `hardening_flags`: ELF exploit mitigations (`stack_canary`, `nx_bit`, `pie_enabled`, `relro`).
+  - `string_artifacts`: Static ASCII/UTF-8 string tables annotated with string length and Shannon entropy metrics.
+  - `symbol_table`: Exported JNI functions, function names, and dynamic symbols.
+  - `code_scope`: Decompiled C function line mappings.
+  - `parsed_binary`: Single reference to the parsed binary AST object.
+- **Zero Overhead Querying**: All downstream analyzers query `self.context` directly, eliminating redundant file reads and re-parsing passes.
+
+### Stage 3: Decompilation & Symbol Resolution (`GhidraParser` & Fallback Engine)
+- **Primary Decompiler (Ghidra Headless)**: When Ghidra's `analyzeHeadless` executable is configured, the module invokes Ghidra via Jython scripts to produce decompiled C function blocks and mapped memory addresses starting at virtual offset `0x2b00`.
+- **Zero-Dependency Fallback Engine**: If Ghidra is not available, the engine employs a cross-platform heuristic parser that extracts string tables, exported symbols, and reconstructs pseudo-C AST function bodies directly.
+- **JNI Alias Deduplication & Normalization**: Automatically detects and eliminates duplicate function entries where short demographic/mangled symbol names (e.g., `executeDiagnostic`) match the trailing identifier of fully qualified JNI exported symbols (`Java_com_example_app_NativeCoreEngine_executeDiagnostic`) at the same address or identical code lines. Prioritizes the fully qualified `Java_...` symbol as the canonical identifier (`is_exported_jni = True`) and removes redundant short aliases from `functions_code_scope`, `symbol_table`, and `parsed_binary`, ensuring each unique JNI implementation is analyzed exactly once without duplicate findings.
+
+### Stage 4: AST Pattern Matching & Taint Flow Tracking (`BaseAnalyzer` + 15 Analyzers)
+- **Signature Dispatch**: The scanner dispatches function scopes across 15 category analyzers executing 66 pattern signatures defined in `config/rules.yaml`.
+- **20-Line Memory Context Window**: For every matched vulnerability pattern, `BaseAnalyzer._scan_function_with_patterns` extracts a 20-line code window (`trigger_index - 10` to `trigger_index + 10`).
+- **Memory Offset Annotations**: Annotates code lines with virtual memory offset tags:
+  `/* 0x2b40 | line 34 */ statement; // [TRIGGER]`
+- **JNI AST Taint Tracking**: Traces user-controlled inputs originating from JNI parameters (`jstring`, `jbyteArray`, `GetStringUTFChars`, `GetByteArrayElements`) into unsafe sink functions (`system`, `sprintf`, `strcpy`, `execve`, etc.).
+
+### Stage 5: Selective Finding Aggregation Engine
+- **Classification Strategy**: Distinguishes between static data/string artifacts and execution control-flow vulnerabilities.
+  - **Aggregatable Rules**: Static binary data section artifacts (`STR-*`, `FRD-*`, `DBG-*`, and static paths in `IPC-004`).
+  - **Non-Aggregatable Rules**: Control-flow, memory safety, and taint-analysis vulnerabilities (`JNI-*`, `BOF-*`, `INJ-*`, `REF-*`, `RND-*`, `CRY-*`, `PRM-*`, `INT-*`, `MEM-*`, `FMT-*`, `IPC-001–IPC-003`). Each occurrence remains a standalone finding.
+- **5-Tuple Composite Grouping Key**: Combines aggregatable findings into a single `Finding` object ONLY if all 5 fields match identically: `rule_id`, `severity`, `confidence`, `location.function_name`, and `flow_analysis.source`. Grouped findings contain `total_matches` counts and detailed `matches` arrays.
+
+### Stage 6: 4-Level JSON Serialization (`JSONReporter`)
+Outputs structured JSON report payloads adhering to a 4-level hierarchy:
+- **Level 1**: Global Scan Summary (`summary`)
+- **Level 2**: Target Binary Scope (`targets[]`)
+- **Level 3**: Function Objects (`functions[]`)
+- **Level 4**: Granular Findings (`functions[].findings[]`)
+
+### Stage 7: CLI Terminal UI Rendering (`cli.py`)
+Provides a terminal output displaying:
+1. ANSI Colorized ASCII Banner with submodule identity note.
+2. **Execution Metadata Table**: Execution Mode (`SINGLE (.so)` or `MULTI (.apk)`), Target File Path, Output Report Path, and Identified Binary Count.
+3. **Progress Indicators**: Step-by-step terminal logs (`[+]`, `[*]`, `[✔]`).
+4. **Post-Scan Summary Table**: Total targets scanned, total findings, severity breakdown (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`), and top detected categories.
+
+---
+
+## Configuration & Setup Architecture
+
+### Configuration Files
+- **Template Config**: `config/cli_config.example.yaml`
+- **Active Config**: `config/cli_config.yaml`
+
+Setup step:
+```bash
+cp config/cli_config.example.yaml config/cli_config.yaml
+```
+
+### Configuration Parameters
+```yaml
+target_path: "./tests/app.apk"           # Accepts .so (Single Mode) or .apk (Multi Mode)
+output_json_path: "./output/report.json" # Output report path
+ghidra_headless_path: null               # Optional Ghidra analyzeHeadless path
+```
+
+- `target_path` (*string*, required): Path to the target binary (`.so`) or application archive (`.apk`).
+- `output_json_path` (*string*, required): Destination path for the generated JSON report.
+- `ghidra_headless_path` (*string*, optional): Path to Ghidra's `analyzeHeadless` script. If `null` or omitted, the scanner uses its zero-dependency fallback parser.
 
 ---
 
@@ -150,107 +235,16 @@ The architecture comprises a modular pipeline:
 
 ---
 
-## Detailed Component Specifications
-
-### 1. Ingestion & Fallback Symbol Resolution (`ghidra_parser.py`)
-- Reads raw ELF header bytes (`\x7fELF`) to verify machine architecture (`arm64-v8a`, `armeabi-v7a`, `x86_64`, `x86`).
-- Inspects string sections for binary security mitigations (`__stack_chk_fail` for Stack Canary, `GNU_RELRO` for RELRO status).
-- When Ghidra Headless is unavailable, the fallback parser extracts printable ASCII/UTF-8 strings and resolves exported JNI symbols (`Java_...`).
-- Constructs synthetic decompiled function blocks representing extracted native routines, assigning 16-byte aligned virtual memory addresses starting at offset `0x2b00`.
-- **JNI Alias Deduplication & Normalization**: Automatically detects and eliminates duplicate function entries where short demographic/mangled symbol names (e.g., `executeDiagnostic`) match the trailing identifier of fully qualified JNI exported symbols (`Java_com_example_app_NativeCoreEngine_executeDiagnostic`) at the same address or identical code lines. Prioritizes the fully qualified `Java_...` symbol as the canonical identifier (`is_exported_jni = True`) and removes redundant short aliases from `functions_code_scope`, `symbol_table`, and `parsed_binary`, ensuring each unique JNI implementation is analyzed exactly once without duplicate findings.
-
-### 2. Rule Engine Configuration & Model Parsing (`config/rules.yaml`, `config_loader.py`, `rule.py`)
-- **YAML Signature Schema**: Vulnerability detection rules in `config/rules.yaml` utilize a structured nested format:
-  ```yaml
-  rules:
-    - id: BOF-001
-      name: Buffer Overflow Vulnerability
-      severity: CRITICAL
-      confidence: HIGH
-      category: Buffer Overflow
-      description: Unsafe memory function call detected without explicit bounds checking.
-      patterns:
-        - id: BOF-001
-          pattern: gets\s*\(
-          severity: CRITICAL
-          confidence: HIGH
-          description: Usage of gets() which is inherently dangerous.
-        - id: BOF-002
-          pattern: strcpy\s*\(
-          severity: CRITICAL
-          confidence: HIGH
-          description: Unbounded string copy using strcpy().
-  ```
-- **Data Models (`native_analysis/models/rule.py`)**:
-  - `RulePattern`: Encapsulates pattern-level attributes (`id`, `pattern`, `severity`, `confidence`, `description`).
-  - `Rule`: Top-level rule category wrapper holding a list of `RulePattern` instances (`patterns: List[RulePattern]`).
-- **Loader Resolution (`ConfigLoader.load_rules`)**: Parses standard PyYAML input or fallback line-level YAML tokens into strongly-typed `Rule` and `RulePattern` objects. Missing fields automatically inherit defaults from parent category rules.
-
-### 3. Context Window & Taint Flow Construction (`base_analyzer.py`)
-- For every matched vulnerability pattern, `BaseAnalyzer._scan_function_with_patterns` iterates over `RulePattern` objects.
-- Extracts sub-rule ID (`pat_obj.id`), specific pattern regex (`pat_obj.pattern`), specific severity (`pat_obj.severity`), and specific confidence (`pat_obj.confidence`).
-- Generates a 20-line context window surrounding the trigger statement (`trigger_index - 10` to `trigger_index + 10`).
-- Each code line is formatted with virtual memory offset annotations and explicit trigger labels:
-  `/* 0x2b40 | line 34 */ statement; // [TRIGGER]`
-- Extracts variable/buffer operands to populate the `target_variable` field.
-- Constructs a structured `FlowAnalysis` payload describing the JNI parameter source and unsanitized function call sink.
-
-### 4. Selective Finding Aggregation Engine
-- **Selective Aggregation Logic**: Differentiates between static string/artifact findings and control-flow execution findings.
-- **Rule Classification Matrix**:
-  - **Aggregatable Rules**: Static binary data and string artifacts (`STR-*`, `FRD-*`, `DBG-*`, and static file paths under `IPC-004`).
-  - **Non-Aggregatable Rules**: Control-flow, taint-analysis, and execution vulnerabilities (`JNI-*`, `BOF-*`, `INJ-*`, `REF-*`, `RND-*`, `CRY-*`, `PRM-*`, `INT-*`, `MEM-*`, `FMT-*`, `IPC-001`, `IPC-002`, `IPC-003`). Each occurrence remains a distinct standalone `Finding` object.
-- **5-Tuple Composite Grouping Key**: Merges Aggregatable Rules into a single `Finding` object ONLY if all 5 criteria match: `rule_id`, `severity`, `confidence`, `location.function_name`, and `flow_analysis.source`.
-- **Target & Finding Schema Fields**:
-  - `cwe_id` (str): Common Weakness Enumeration ID (e.g., `CWE-120`).
-  - `masvs_id` (str): OWASP MASVS Control ID (e.g., `MASVS-CODE-2`).
-  - `functions_code_scope` (dict[str, list[str]]): Target-level map of function names to their decompiled code lines.
-  - `flow_analysis` (dict): Taint flow tracking object containing `trigger_line_number` and compact `flow_trace`.
-  - `total_matches` (int): Total count of matches aggregated into this finding (defaults to 1).
-  - `matches` (list[dict]): Array of match occurrences containing `match_id` (e.g. `FIND-02-1`), `line_number`, `target_variable`, and `trigger_line`.
-
-### 5. Shared Analysis Context Layer (`AnalysisContext` & `ContextBuilder`)
-- **Centralized Pre-Extraction**: `ContextBuilder` initializes an `AnalysisContext` dataclass once during scanner initialization.
-- **Pre-Extracted Artifacts**:
-  - `binary_info`: Basic target file metadata (file name, relative path, ABI architecture, SHA-256 hash).
-  - `hardening_flags`: ELF exploit mitigations (`stack_canary`, `nx_bit`, `pie_enabled`, `relro`).
-  - `string_artifacts`: Static ASCII/UTF-8 string tables with length and Shannon entropy annotations.
-  - `symbol_table`: Exported JNI functions, function names, and dynamic symbols.
-  - `code_scope`: Decompiled C function line mappings.
-  - `parsed_binary`: Single reference to the parsed binary AST.
-- **O(1) Memory Lookup**: All downstream analyzers query `self.context` directly without re-reading or re-parsing the target binary.
-
----
-
-## JSON Output Report Structure
-
-The scanner outputs structured JSON results adhering to a 4-level hierarchical schema:
-- **Level 1**: Global Scan Summary (`summary`)
-- **Level 2**: Target Binary Scope (`targets[]`)
-- **Level 3**: Function Objects (`functions[]`)
-- **Level 4**: Granular Findings (`functions[].findings[]`)
+## 4-Level JSON Report Structure
 
 ```json
 {
   "summary": {
     "total_targets_scanned": 1,
     "total_findings": 15,
-    "by_severity": {
-      "CRITICAL": 3,
-      "HIGH": 6,
-      "MEDIUM": 4,
-      "LOW": 2
-    },
-    "by_confidence": {
-      "HIGH": 12,
-      "MEDIUM": 3,
-      "LOW": 0
-    },
-    "by_category": {
-      "Buffer Overflow": 2,
-      "Command Injection": 2,
-      "Format String": 1
-    }
+    "by_severity": { "CRITICAL": 3, "HIGH": 6, "MEDIUM": 4, "LOW": 2 },
+    "by_confidence": { "HIGH": 12, "MEDIUM": 3, "LOW": 0 },
+    "by_category": { "Buffer Overflow": 2, "Command Injection": 2 }
   },
   "targets": [
     {
@@ -301,47 +295,98 @@ The scanner outputs structured JSON results adhering to a 4-level hierarchical s
               }
             }
           ]
-        },
-        {
-          "function_name": "N/A (Static Data Section)",
-          "symbol_address": "N/A",
-          "is_exported_jni": false,
-          "source_code": [],
-          "findings": [
-            {
-              "finding_id": "FIND-02",
-              "rule_id": "FRD-001",
-              "cwe_id": "CWE-693",
-              "masvs_id": "MASVS-RESILIENCE-2",
-              "severity": "HIGH",
-              "confidence": "HIGH",
-              "line_number": 10,
-              "target_variable": "/system/bin/su",
-              "trigger_line": "/* String artifact */ \"/system/bin/su\";",
-              "flow_analysis": {
-                "trigger_line_number": 10,
-                "flow_trace": "Static String Data (L10) -> /system/bin/su [SINK]"
-              },
-              "total_matches": 2,
-              "matches": [
-                {
-                  "match_id": "FIND-02-1",
-                  "line_number": 10,
-                  "target_variable": "/system/bin/su",
-                  "trigger_line": "/* String artifact */ \"/system/bin/su\";"
-                },
-                {
-                  "match_id": "FIND-02-2",
-                  "line_number": 22,
-                  "target_variable": "/system/xbin/su",
-                  "trigger_line": "/* String artifact */ \"/system/xbin/su\";"
-                }
-              ]
-            }
-          ]
         }
       ]
     }
   ]
 }
+```
+
+---
+
+## CLI Execution & Terminal Interface
+
+### Running the Scanner
+```bash
+# Execute using configuration settings in config/cli_config.yaml
+python cli.py
+
+# Specify explicit target and output paths
+python cli.py -t ./tests/app.apk -o ./output/report.json
+
+# Use custom YAML configuration file
+python cli.py -c config/custom_config.yaml
+```
+
+### Terminal UI Example Output
+```
+    _   ___ _  _______                    
+   /_\ | _ \ |/ /_   _| __ __ _ ___ ___   
+  / _ \|  _/ ' <  | | | '__/ _` / _| _/   
+ /_/ \_\_| |_|\_\ |_| |_|  \__,_\__|___|  
+
+  APKTrace - Native Analysis Module
+  Specialized native binary analysis sub-component of the APKTrace ecosystem
+======================================================================
+ [+] [INFO] Loading configuration & rules...
+ [+] [INFO] Config loaded successfully from 'config/cli_config.example.yaml'.
+
+----------------------------------------------------------------------
+ EXECUTION METADATA
+----------------------------------------------------------------------
+  * Mode:                    MULTI (.apk)
+  * Target File:             ./tests/app.apk
+  * Output Path:             ./output/report.json
+  * Identified Binaries:     2 target(s)
+----------------------------------------------------------------------
+
+ [*] [SCAN] Extracting native targets from APK archive 'app.apk'...
+ [*] [SCAN] Decompiling & analyzing symbols via Ghidra...
+ [*] [TAINT] Running variable flow analysis & JNI context extraction...
+ [✔] [SUCCESS] Report generated successfully at ./output/report.json
+
+======================================================================
+                      SCAN SUMMARY RESULTS                            
+======================================================================
+  Total Target Files Scanned : 2
+  Total Vulnerabilities Found: 8
+----------------------------------------------------------------------
+  SEVERITY BREAKDOWN
+----------------------------------------------------------------------
+   CRITICAL :  2
+   HIGH     :  4
+   MEDIUM   :  0
+   LOW      :  2
+----------------------------------------------------------------------
+  TOP CATEGORIES DETECTED
+----------------------------------------------------------------------
+   JNI Boundary Leak                  : 4
+   Buffer Overflow                    : 2
+   Command Injection                  : 2
+======================================================================
+```
+
+---
+
+## Python SDK Integration
+
+```python
+import native_analysis as apk_trace
+from native_analysis import ScanEngine
+from native_analysis.reporters.json_reporter import JSONReporter
+
+# Convenience Functions
+parsed_binary, findings = apk_trace.scan_single("path/to/libnative.so") # Single Mode (.so)
+scanned_targets = apk_trace.scan_multi("path/to/app.apk")                # Multi Mode (.apk)
+scanned_targets = apk_trace.scan("path/to/target_file")                 # Auto-detect Mode (.so or .apk)
+
+# Object-Oriented Engine Instance
+engine = ScanEngine(rules_path="config/rules.yaml")
+scanned_targets = engine.scan("path/to/target_file")
+
+# Generate JSON Report File
+report_data = JSONReporter.generate_report(
+    scanned_targets=scanned_targets,
+    output_file_path="./output/report.json"
+)
 ```

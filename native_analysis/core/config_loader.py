@@ -43,6 +43,9 @@ class ConfigLoader:
             if ":" in raw_line and not raw_line.strip().startswith("- "):
                 key, val = raw_line.split(":", 1)
                 key = key.strip()
+                val = val.strip()
+                if "#" in val:
+                    val = val.split("#", 1)[0].strip()
                 val = val.strip().strip('"').strip("'")
                 if val and not current_rule:
                     cli_dict[key] = val
@@ -154,30 +157,70 @@ class ConfigLoader:
         return rules
 
     @staticmethod
+    def resolve_target_path(path: Optional[str]) -> Optional[str]:
+        """
+        Resolves relative or absolute target file paths against current working directory and project root.
+        
+        @param path Path string to resolve.
+        @return Optional[str] Absolute normalized file path if found on disk, or original path if not found.
+        """
+        if not path:
+            return None
+
+        # 1. Direct path check (relative to CWD or absolute)
+        if os.path.exists(path):
+            return os.path.abspath(path)
+
+        # 2. Check relative to project root (two levels above config_loader.py)
+        proj_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+        rel_proj_path = os.path.join(proj_root, path)
+        if os.path.exists(rel_proj_path):
+            return os.path.abspath(rel_proj_path)
+
+        return path
+
+    @staticmethod
     def load_cli_config(config_path: str = "config/cli_config.yaml") -> Dict[str, Any]:
         """
         Loads CLI configuration containing default target library paths and Ghidra settings.
+        Checks config/cli_config.yaml first, falling back to config/cli_config.example.yaml.
         
         @param config_path Path to cli_config.yaml configuration file.
         @return Dict[str, Any] Configuration options dictionary.
         """
-        if not os.path.exists(config_path):
-            example_path = config_path + ".example"
-            if os.path.exists(example_path):
-                config_path = example_path
+        target_config_file = config_path
 
-        if os.path.exists(config_path):
-            with open(config_path, "r", encoding="utf-8") as f:
+        # If primary config path does not exist, check for cli_config.example.yaml
+        if not os.path.exists(target_config_file):
+            dir_name = os.path.dirname(config_path) or "."
+            example_candidate = os.path.join(dir_name, "cli_config.example.yaml")
+            if os.path.exists(example_candidate):
+                target_config_file = example_candidate
+            elif os.path.exists("config/cli_config.example.yaml"):
+                target_config_file = "config/cli_config.example.yaml"
+
+        if os.path.exists(target_config_file):
+            with open(target_config_file, "r", encoding="utf-8") as f:
                 content = f.read()
                 if yaml is not None:
-                    return yaml.safe_load(content) or {}
+                    res = yaml.safe_load(content) or {}
                 else:
-                    return ConfigLoader._fallback_parse_yaml(content)
-        
-        # Default configuration fallback dictionary
+                    res = ConfigLoader._fallback_parse_yaml(content)
+
+                if "target_so_path" in res and "target_path" not in res:
+                    res["target_path"] = res["target_so_path"]
+
+                if res.get("target_path"):
+                    res["target_path"] = ConfigLoader.resolve_target_path(res["target_path"])
+
+                res["_config_file_used"] = target_config_file
+                return res
+
+        # Default configuration fallback dictionary (no hardcoded test target defaults)
         return {
-            "target_so_path": "./tests/libnative.so",
+            "target_path": None,
             "output_json_path": "./output/report.json",
-            "ghidra_headless_path": None
+            "ghidra_headless_path": None,
+            "_config_file_used": None
         }
 

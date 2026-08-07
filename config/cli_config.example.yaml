@@ -1,4 +1,4 @@
 # APKTrace - Native Analysis CLI Configuration Template
-target_so_path: "./tests/libnative.so"
+target_path: "./tests/app.apk" # Accepts .so (Single Mode) or .apk (Multi Mode)
 output_json_path: "./output/report.json"
 ghidra_headless_path: "C:\\Ghidra\\support\\analyzeHeadless.bat"
