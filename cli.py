@@ -232,7 +232,8 @@ def main():
             raise FileNotFoundError(f"Target binary '{raw_target}' not found.")
 
         output_path = args.output if args.output else cli_config.get("output_json_path", "./output/report.json")
-        ghidra_path = cli_config.get("ghidra_headless_path")
+        engine_type = cli_config.get("engine", "ghidra")
+        decompiler_path = cli_config.get("decompiler_path") or cli_config.get("ghidra_headless_path")
 
         # Verify target file extension
         ext = os.path.splitext(target_path)[1].lower()
@@ -247,7 +248,8 @@ def main():
         # Initialize scan engine
         engine = ScanEngine(
             rules_path="config/rules.yaml",
-            ghidra_headless_path=ghidra_path
+            decompiler_path=decompiler_path,
+            engine=engine_type
         )
 
         # Step 2: Target identification and execution metadata header
@@ -277,7 +279,8 @@ def main():
         )
 
         # Step 3: Progressive scan stages
-        print_progress("*", COLOR_CYAN, "SCAN", "Decompiling & analyzing symbols via Ghidra...")
+        engine_label = "Radare2" if engine_type == "radare2" else "Ghidra"
+        print_progress("*", COLOR_CYAN, "SCAN", f"Decompiling & analyzing symbols via {engine_label}...")
         print_progress("*", COLOR_YELLOW, "TAINT", "Running variable flow analysis & JNI context extraction...")
 
         # Run scan (.so single mode or .apk multi mode)
@@ -286,7 +289,8 @@ def main():
         # Step 4: Report generation
         JSONReporter.generate_report(
             scanned_targets=scanned_targets,
-            output_file_path=output_path
+            output_file_path=output_path,
+            analysis_engine=engine_type
         )
 
         print_progress("✔", COLOR_GREEN, "SUCCESS", f"Report generated successfully at {output_path}")

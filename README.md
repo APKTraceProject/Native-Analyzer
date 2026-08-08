@@ -7,7 +7,7 @@
   - **Single Mode (`.so`)**: Analyzes individual compiled shared object binaries directly.
   - **Multi Mode (`.apk`)**: Automatically extracts and scans embedded `.so` binaries from Android APK packages.
 - **Primary ABI Resolution & Deduplication**: Intelligently groups duplicate binaries across architecture folders (`arm64-v8a`, `x86_64`, `armeabi-v7a`, `x86`) and selects a single primary ABI binary per library (following fallback priority: `arm64-v8a` > `x86_64` > `armeabi-v7a` > `x86`), reducing report redundancy and LLM token usage while recording ABI resolution metadata (`primary_abi`, `associated_abis`, `deduplication_enabled`) in the global report summary.
-- **Symbol & AST Reconstruction**: Ghidra Headless integration paired with a zero-dependency cross-platform fallback decompiler.
+- **Symbol & AST Reconstruction**: Ghidra Headless and modular Radare2 (`r2pipe`) integration paired with a zero-dependency cross-platform fallback decompiler.
 - **JNI AST Taint Flow Analysis**: Traces unsanitized user inputs from JNI entrypoints (`GetStringUTFChars`, `GetByteArrayElements`) into high-risk memory, format string, and system execution sinks.
 - **15 Category Vulnerability Matrix**: 66 specialized sub-rules detecting Buffer Overflows, Command Injections, JNI Leaks, Cryptography Flaws, Permission Flaws, and Anti-Analysis controls.
 - **Modern CLI Terminal UI**: ASCII art banner, Execution Metadata display, real-time progress indicators, and Post-Scan Summary tables.
@@ -119,18 +119,20 @@ Copy the example CLI configuration template to create your local config file:
 cp config/cli_config.example.yaml config/cli_config.yaml
 ```
 
-Edit `config/cli_config.yaml` to configure your target file, output path, and optional Ghidra path:
+Edit `config/cli_config.yaml` to configure your target file, output path, selected engine, and optional decompiler path:
 
 ```yaml
 target_path: "./tests/app.apk"
 output_json_path: "./output/report.json"
-ghidra_headless_path: null
+engine: "ghidra" # Analysis engine choice: "ghidra" or "radare2"
+decompiler_path: null # Path to Ghidra analyzeHeadless script or radare2 binary
 ```
 
 #### Configuration Parameters
 - **`target_path`**: Accepts either a single dynamic native library path (`.so` for Single Mode) or a full Android application package (`.apk` for Multi Mode).
 - **`output_json_path`**: File path destination where the final 3-tier structured JSON report will be exported.
-- **`ghidra_headless_path`**: Optional path to Ghidra's `analyzeHeadless` script (e.g. `C:\Ghidra\support\analyzeHeadless.bat` or `/opt/ghidra/support/analyzeHeadless`). If set to `null` or omitted, the scanner automatically falls back to its zero-dependency cross-platform heuristic parser.
+- **`engine`**: Decompiler engine backend (`"ghidra"` or `"radare2"`, defaults to `"ghidra"`).
+- **`decompiler_path`**: Optional path to Ghidra's `analyzeHeadless` script or `radare2` binary. If set to `null` or omitted, the scanner automatically falls back to its zero-dependency cross-platform heuristic parser.
 
 ---
 
@@ -229,10 +231,11 @@ scanned_targets = apk_trace.scan("path/to/target_file")
 # Approach B: Object-Oriented ScanEngine API
 # ---------------------------------------------------------
 
-# Initialize engine with rule definitions and optional Ghidra decompiler path
+# Initialize engine with rule definitions and optional decompiler path / engine choice
 engine = ScanEngine(
     rules_path="config/rules.yaml",
-    ghidra_headless_path="/path/to/ghidra/support/analyzeHeadless"
+    engine="radare2", # or "ghidra"
+    decompiler_path="/usr/bin/radare2" # or Ghidra analyzeHeadless path
 )
 
 # Single Mode (.so)
@@ -260,6 +263,7 @@ The engine produces a standardized 3-Tier JSON report containing executive metri
 ```json
 {
   "summary": {
+    "analysis_engine": "ghidra",
     "total_targets_scanned": 1,
     "total_findings": 15,
     "by_severity": { "CRITICAL": 2, "HIGH": 5, "MEDIUM": 5, "LOW": 3 },

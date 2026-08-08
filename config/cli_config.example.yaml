@@ -1,4 +1,5 @@
 # APKTrace - Native Analysis CLI Configuration Template
 target_path: "./tests/app.apk" # Accepts .so (Single Mode) or .apk (Multi Mode)
 output_json_path: "./output/report.json"
-ghidra_headless_path: "C:\\Ghidra\\support\\analyzeHeadless.bat"
+engine: "ghidra" # Selected engine: "ghidra" or "radare2"
+decompiler_path: "C:\\Ghidra\\support\\analyzeHeadless.bat" # Path to Ghidra analyzeHeadless executable or radare2 binary depending on engine

@@ -12,7 +12,7 @@ from native_analysis.models.parsed_binary import ParsedBinary
 from native_analysis.models.finding import Finding
 from native_analysis.models.rule import Rule
 from native_analysis.models.context import AnalysisContext
-from native_analysis.parsers.ghidra_parser import GhidraParser
+from native_analysis.parsers import GhidraParser, Radare2Parser
 from native_analysis.core.config_loader import ConfigLoader
 from native_analysis.core.context_builder import ContextBuilder
 
@@ -63,16 +63,31 @@ class ScanEngine:
         "STR-001": StringObfuscationAnalyzer,
     }
 
-    def __init__(self, rules_path: str = "config/rules.yaml", ghidra_headless_path: str = None):
+    def __init__(
+        self,
+        rules_path: str = "config/rules.yaml",
+        decompiler_path: Optional[str] = None,
+        engine: str = "ghidra",
+        ghidra_headless_path: Optional[str] = None
+    ):
         """
-        Initializes engine, loads YAML rule signatures, and configures binary decompiler.
+        Initializes engine, loads YAML rule signatures, and configures binary decompiler/parser.
         
         @param rules_path Path to rules.yaml config file.
-        @param ghidra_headless_path Optional path to Ghidra headless analyzer executable.
+        @param decompiler_path Optional path to decompiler executable (Ghidra analyzeHeadless or radare2 binary).
+        @param engine Decompiler engine choice ("ghidra" or "radare2").
+        @param ghidra_headless_path Backward compatibility alias for decompiler_path.
         """
         self.rules = ConfigLoader.load_rules(rules_path)
         self.rules_by_id: Dict[str, Rule] = {r.id: r for r in self.rules}
-        self.parser = GhidraParser(ghidra_headless_path=ghidra_headless_path)
+        
+        resolved_decompiler_path = decompiler_path or ghidra_headless_path
+        self.engine_name = (engine or "ghidra").lower()
+
+        if self.engine_name == "radare2":
+            self.parser = Radare2Parser(decompiler_path=resolved_decompiler_path)
+        else:
+            self.parser = GhidraParser(ghidra_headless_path=resolved_decompiler_path)
 
     @staticmethod
     def format_exception(e: Exception) -> str:

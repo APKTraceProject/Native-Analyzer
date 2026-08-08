@@ -107,9 +107,11 @@ Operating as a specialized native binary analysis sub-component of the broader A
   - `parsed_binary`: Single reference to the parsed binary AST object.
 - **Zero Overhead Querying**: All downstream analyzers query `self.context` directly, eliminating redundant file reads and re-parsing passes.
 
-### Stage 3: Decompilation & Symbol Resolution (`GhidraParser` & Fallback Engine)
-- **Primary Decompiler (Ghidra Headless)**: When Ghidra's `analyzeHeadless` executable is configured, the module invokes Ghidra via Jython scripts to produce decompiled C function blocks and mapped memory addresses starting at virtual offset `0x2b00`.
-- **Zero-Dependency Fallback Engine**: If Ghidra is not available, the engine employs a cross-platform heuristic parser that extracts string tables, exported symbols, and reconstructs pseudo-C AST function bodies directly.
+### Stage 3: Decompilation & Symbol Resolution (`GhidraParser`, `Radare2Parser`, & Fallback Engine)
+- **Primary Decompiler Engines**:
+  - **Ghidra Headless (`GhidraParser`)**: When Ghidra's `analyzeHeadless` executable is configured, the module invokes Ghidra via Jython scripts to produce decompiled C function blocks and mapped memory addresses starting at virtual offset `0x2b00`.
+  - **Radare2 (`Radare2Parser`)**: When `engine: "radare2"` is selected, the module utilizes `r2pipe` or radare2 CLI execution to run fast binary analysis (`aaa`), extract exported JNI functions (`iEj`), static memory strings (`izzj`), and analyzed functions (`aflj`).
+- **Zero-Dependency Fallback Engine**: If Ghidra or radare2 are not available or not installed, the engine employs a cross-platform heuristic parser that extracts string tables, exported symbols, and reconstructs pseudo-C AST function bodies directly.
 - **JNI Alias Deduplication & Normalization**: Automatically detects and eliminates duplicate function entries where short demographic/mangled symbol names (e.g., `executeDiagnostic`) match the trailing identifier of fully qualified JNI exported symbols (`Java_com_example_app_NativeCoreEngine_executeDiagnostic`) at the same address or identical code lines. Prioritizes the fully qualified `Java_...` symbol as the canonical identifier (`is_exported_jni = True`) and removes redundant short aliases from `functions_code_scope`, `symbol_table`, and `parsed_binary`, ensuring each unique JNI implementation is analyzed exactly once without duplicate findings.
 
 ### Stage 4: AST Pattern Matching & Taint Flow Tracking (`BaseAnalyzer` + 15 Analyzers)
@@ -156,12 +158,14 @@ cp config/cli_config.example.yaml config/cli_config.yaml
 ```yaml
 target_path: "./tests/app.apk"           # Accepts .so (Single Mode) or .apk (Multi Mode)
 output_json_path: "./output/report.json" # Output report path
-ghidra_headless_path: null               # Optional Ghidra analyzeHeadless path
+engine: "ghidra"                         # Decompiler engine choice: "ghidra" or "radare2"
+decompiler_path: null                    # Optional path to Ghidra analyzeHeadless executable or radare2 binary
 ```
 
 - `target_path` (*string*, required): Path to the target binary (`.so`) or application archive (`.apk`).
 - `output_json_path` (*string*, required): Destination path for the generated JSON report.
-- `ghidra_headless_path` (*string*, optional): Path to Ghidra's `analyzeHeadless` script. If `null` or omitted, the scanner uses its zero-dependency fallback parser.
+- `engine` (*string*, optional): Decompiler engine backend (`"ghidra"` or `"radare2"`, defaults to `"ghidra"`).
+- `decompiler_path` (*string*, optional): Path to Ghidra's `analyzeHeadless` script or `radare2` binary. If `null` or omitted, the scanner uses its zero-dependency fallback parser.
 
 ---
 
@@ -246,6 +250,7 @@ ghidra_headless_path: null               # Optional Ghidra analyzeHeadless path
 ```json
 {
   "summary": {
+    "analysis_engine": "ghidra",
     "total_targets_scanned": 1,
     "total_findings": 15,
     "by_severity": { "CRITICAL": 3, "HIGH": 6, "MEDIUM": 4, "LOW": 2 },
@@ -392,7 +397,11 @@ scanned_targets = apk_trace.scan_multi("path/to/app.apk")                # Multi
 scanned_targets = apk_trace.scan("path/to/target_file")                 # Auto-detect Mode (.so or .apk)
 
 # Object-Oriented Engine Instance
-engine = ScanEngine(rules_path="config/rules.yaml")
+engine = ScanEngine(
+    rules_path="config/rules.yaml",
+    engine="radare2", # or "ghidra"
+    decompiler_path="/usr/bin/radare2" # or Ghidra analyzeHeadless path
+)
 scanned_targets = engine.scan("path/to/target_file")
 
 # Generate JSON Report File
