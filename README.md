@@ -6,7 +6,7 @@
 - **Dual Operating Modes**:
   - **Single Mode (`.so`)**: Analyzes individual compiled shared object binaries directly.
   - **Multi Mode (`.apk`)**: Automatically extracts and scans embedded `.so` binaries from Android APK packages.
-- **Primary ABI Resolution & Deduplication**: Intelligently groups duplicate binaries across architecture folders (`arm64-v8a`, `x86_64`, `armeabi-v7a`, `x86`) and selects a single primary ABI binary per library (following fallback priority: `arm64-v8a` > `x86_64` > `armeabi-v7a` > `x86`), reducing report redundancy and LLM token usage while tracking bypassed ABIs in metadata (`primary_abi` and `associated_abis`).
+- **Primary ABI Resolution & Deduplication**: Intelligently groups duplicate binaries across architecture folders (`arm64-v8a`, `x86_64`, `armeabi-v7a`, `x86`) and selects a single primary ABI binary per library (following fallback priority: `arm64-v8a` > `x86_64` > `armeabi-v7a` > `x86`), reducing report redundancy and LLM token usage while recording ABI resolution metadata (`primary_abi`, `associated_abis`, `deduplication_enabled`) in the global report summary.
 - **Symbol & AST Reconstruction**: Ghidra Headless integration paired with a zero-dependency cross-platform fallback decompiler.
 - **JNI AST Taint Flow Analysis**: Traces unsanitized user inputs from JNI entrypoints (`GetStringUTFChars`, `GetByteArrayElements`) into high-risk memory, format string, and system execution sinks.
 - **15 Category Vulnerability Matrix**: 66 specialized sub-rules detecting Buffer Overflows, Command Injections, JNI Leaks, Cryptography Flaws, Permission Flaws, and Anti-Analysis controls.
@@ -264,15 +264,18 @@ The engine produces a standardized 3-Tier JSON report containing executive metri
     "total_findings": 15,
     "by_severity": { "CRITICAL": 2, "HIGH": 5, "MEDIUM": 5, "LOW": 3 },
     "by_confidence": { "HIGH": 13, "MEDIUM": 2, "LOW": 0 },
-    "by_category": { "Buffer Overflow": 1, "Command Injection": 1 }
+    "by_category": { "Buffer Overflow": 1, "Command Injection": 1 },
+    "abi_resolution": {
+      "primary_abi": "arm64-v8a",
+      "associated_abis": ["x86_64", "armeabi-v7a", "x86"],
+      "deduplication_enabled": true
+    }
   },
   "targets": [
     {
       "file_name": "libnative.so",
       "apk_relative_path": "lib/arm64-v8a/libnative.so",
       "abi_architecture": "arm64-v8a",
-      "primary_abi": "arm64-v8a",
-      "associated_abis": ["x86_64", "armeabi-v7a", "x86"],
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "target_summary": {
         "file_findings_count": 15,

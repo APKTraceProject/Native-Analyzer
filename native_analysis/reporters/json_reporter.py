@@ -216,8 +216,6 @@ class JSONReporter:
                 "file_name": binary.file_name,
                 "apk_relative_path": binary.apk_relative_path,
                 "abi_architecture": binary.abi_architecture,
-                "primary_abi": binary.primary_abi or binary.abi_architecture,
-                "associated_abis": binary.associated_abis,
                 "sha256": binary.sha256,
                 "target_summary": {
                     "file_findings_count": len(findings),
@@ -234,13 +232,25 @@ class JSONReporter:
             }
             targets_json_list.append(target_entry)
 
+        primary_abi = scanned_targets[0][0].primary_abi or scanned_targets[0][0].abi_architecture if scanned_targets else "N/A"
+        associated_abis = []
+        for binary, _ in scanned_targets:
+            for abi in binary.associated_abis:
+                if abi not in associated_abis:
+                    associated_abis.append(abi)
+
         report_payload = {
             "summary": {
                 "total_targets_scanned": total_targets,
                 "total_findings": total_findings,
                 "by_severity": summary_by_severity,
                 "by_confidence": summary_by_confidence,
-                "by_category": summary_by_category
+                "by_category": summary_by_category,
+                "abi_resolution": {
+                    "primary_abi": primary_abi,
+                    "associated_abis": associated_abis,
+                    "deduplication_enabled": True
+                }
             },
             "targets": targets_json_list
         }

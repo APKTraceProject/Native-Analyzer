@@ -92,7 +92,7 @@ Operating as a specialized native binary analysis sub-component of the broader A
   2. `x86_64`
   3. `armeabi-v7a`
   4. `x86`
-- **Audit Trail Metadata**: Bypassed duplicate ABIs are preserved in the target metadata (`primary_abi` and `associated_abis`), maintaining a complete audit trail without redundant scanning.
+- **Audit Trail Metadata**: Bypassed duplicate ABIs are recorded in the global summary metadata object (`abi_resolution`), maintaining a complete audit trail without redundant scanning.
 - **Archive Unpacking**: Unpacks selected primary ABI binaries into an isolated temporary workspace.
 - **Cleanup**: Temporarily extracted files are automatically tracked and removed upon completion of the analysis run.
 
@@ -250,15 +250,18 @@ ghidra_headless_path: null               # Optional Ghidra analyzeHeadless path
     "total_findings": 15,
     "by_severity": { "CRITICAL": 3, "HIGH": 6, "MEDIUM": 4, "LOW": 2 },
     "by_confidence": { "HIGH": 12, "MEDIUM": 3, "LOW": 0 },
-    "by_category": { "Buffer Overflow": 2, "Command Injection": 2 }
+    "by_category": { "Buffer Overflow": 2, "Command Injection": 2 },
+    "abi_resolution": {
+      "primary_abi": "arm64-v8a",
+      "associated_abis": ["x86_64", "armeabi-v7a", "x86"],
+      "deduplication_enabled": true
+    }
   },
   "targets": [
     {
       "file_name": "libnative.so",
       "apk_relative_path": "lib/arm64-v8a/libnative.so",
       "abi_architecture": "arm64-v8a",
-      "primary_abi": "arm64-v8a",
-      "associated_abis": ["x86_64", "armeabi-v7a", "x86"],
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "target_summary": {
         "file_findings_count": 15,
