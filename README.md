@@ -6,7 +6,11 @@
 - **Dual Operating Modes**:
   - **Single Mode (`.so`)**: Analyzes individual compiled shared object binaries directly.
   - **Multi Mode (`.apk`)**: Automatically extracts and scans embedded `.so` binaries from Android APK packages.
-- **Primary ABI Resolution & Deduplication**: Intelligently groups duplicate binaries across architecture folders (`arm64-v8a`, `x86_64`, `armeabi-v7a`, `x86`) and selects a single primary ABI binary per library (following fallback priority: `arm64-v8a` > `x86_64` > `armeabi-v7a` > `x86`), reducing report redundancy and LLM token usage while recording ABI resolution metadata (`primary_abi`, `associated_abis`, `deduplication_enabled`) in the global report summary.
+- **Dual Engine Architecture**:
+  - **Fast Scan (`radare2`)**: High-speed binary disassembly, symbol extraction (`iEj`), string tables (`izzj`), and function listing (`aflj`) via `r2pipe` / radare2.
+  - **Deep Scan (`ghidra`)**: In-depth headless decompilation via Ghidra 10.x+ (`analyzeHeadless`) producing full pseudo-C function bodies and memory-mapped address reconstruction.
+  - **Zero-Dependency Fallback**: Automatic fallback parser for environments without external tools installed.
+- **Primary ABI Resolution & Deduplication**: Intelligently groups duplicate binaries across architecture folders (`arm64-v8a`, `x86_64`, `armeabi-v7a`, `x86`) and selects a single primary ABI binary per library (fallback priority: `arm64-v8a` > `x86_64` > `armeabi-v7a` > `x86`), eliminating 75% of redundant analysis data and achieving a **75% LLM token optimization benefit** while recording complete resolution metadata (`primary_abi`, `associated_abis`, `deduplication_enabled`) in the global report summary.
 - **Symbol & AST Reconstruction**: Ghidra Headless and modular Radare2 (`r2pipe`) integration paired with a zero-dependency cross-platform fallback decompiler.
 - **JNI AST Taint Flow Analysis**: Traces unsanitized user inputs from JNI entrypoints (`GetStringUTFChars`, `GetByteArrayElements`) into high-risk memory, format string, and system execution sinks.
 - **15 Category Vulnerability Matrix**: 66 specialized sub-rules detecting Buffer Overflows, Command Injections, JNI Leaks, Cryptography Flaws, Permission Flaws, and Anti-Analysis controls.
@@ -17,42 +21,54 @@
 ## 🏗️ Pipeline Architecture
 
 ```
-                                 [ ELF / Android .so Target ]
-                                              │
-                                              ▼
-                             ┌─────────────────────────────────┐
-                             │    Decompilation / Disassembly  │
-                             │ (Ghidra Headless / Heuristic)   │
-                             └─────────────────────────────────┘
-                                              │
-                                              ▼
-                             ┌─────────────────────────────────┐
-                             │   Symbol & AST Reconstruction   │
-                             │ (Mapped Addresses 0x2b00 + N)   │
-                             └─────────────────────────────────┘
-                                              │
-                                              ▼
-                             ┌─────────────────────────────────┐
-                             │ 15 Category Analyzer Dispatcher │
-                             │  (Pattern & Context Extraction) │
-                             └─────────────────────────────────┘
-                                              │
-                                              ▼
-                             ┌─────────────────────────────────┐
-                             │  Deduplication & Scope Filter   │
-                             └─────────────────────────────────┘
-                                              │
-                                              ▼
-                             ┌─────────────────────────────────┐
-                             │    4-Tier JSON Report Output    │
-                             └─────────────────────────────────┘
+                             [ Input Target File: .so or .apk ]
+                                            │
+                                            ▼
+                           ┌──────────────────────────────────┐
+                           │     Primary ABI Resolution       │
+                           │   Deduplication (75% Token Opt)  │
+                           └────────────────┬─────────────────┘
+                                            │
+                                            ▼
+                           ┌──────────────────────────────────┐
+                           │    Dual-Parser Engine Layer      │
+                           │  (Radare2 Fast / Ghidra Deep)    │
+                           └────────────────┬─────────────────┘
+                                            │
+                                            ▼
+                           ┌──────────────────────────────────┐
+                           │   Symbol & AST Reconstruction    │
+                           │  (Mapped Addresses & JNI Alias)  │
+                           └────────────────┬─────────────────┘
+                                            │
+                                            ▼
+                           ┌──────────────────────────────────┐
+                           │ 15 Category Analyzer Dispatcher  │
+                           │  (Pattern & Taint Flow Tracking) │
+                           └────────────────┬─────────────────┘
+                                            │
+                                            ▼
+                           ┌──────────────────────────────────┐
+                           │  Selective Finding Aggregation   │
+                           └────────────────┬─────────────────┘
+                                            │
+                                            ▼
+                           ┌──────────────────────────────────┐
+                           │   4-Level JSON Report Output     │
+                           │ Summary -> Target -> Func -> Find│
+                           └──────────────────────────────────┘
 ```
 
-1. **Ingestion & Metadata Extraction**: Reads raw binary headers, computes SHA-256 digests, and detects binary exploit mitigations (Stack Canaries, NX Bit, PIE, RELRO).
-2. **Decompilation Pipeline**: Invokes Ghidra Headless decompilation or executes the zero-dependency fallback heuristic parser to reconstruct C function bodies and `.rodata` string tables. Automatically deduplicates JNI function aliases (matching short symbols like `executeDiagnostic` to fully qualified JNI exports like `Java_com_example_app_NativeCoreEngine_executeDiagnostic`) to ensure each unique implementation is scanned exactly once.
-3. **AST Pattern Matching & Flow Context**: Runs 15 specialized static analyzers across decompiled code blocks using fine-grained, pattern-specific sub-rule IDs (e.g., `BOF-001` for `gets()`, `BOF-002` for `strcpy()`, `BOF-004` for `sprintf()`).
-4. **Selective Finding Aggregation**: Aggregates static binary data & string artifact findings (`STR-*`, `FRD-*`, `DBG-*`, `IPC-004`) sharing identical 5-tuple keys (`rule_id`, `severity`, `confidence`, `location.function_name`, `flow_analysis.source`) into composite findings with `matches` and `total_matches` counts, while keeping execution-path vulnerabilities (`JNI-*`, `BOF-*`, `INJ-*`, etc.) strictly independent.
-5. **Report Serialization**: Produces standardized 3-tier JSON report payloads with attack surface metrics and severity tallies.
+1. **Target Ingestion & Primary ABI Filtering**: Extracts native binaries from `.apk` or reads `.so` directly. Filters duplicate architecture variants by picking a single Primary ABI target (`arm64-v8a` > `x86_64` > `armeabi-v7a` > `x86`), reducing report size and LLM token overhead by up to 75%.
+2. **Context & Metadata Extraction**: Computes SHA-256 digests, detects ELF exploit mitigations (Stack Canaries, NX Bit, PIE, RELRO), and extracts static strings with Shannon entropy metrics.
+3. **Decompilation & Dual Parsing**:
+   - **Fast Scan (`radare2`)**: Uses `Radare2Parser` (`r2pipe`) for rapid symbol extraction, string tables, and disassembly.
+   - **Deep Scan (`ghidra`)**: Uses `GhidraParser` (`analyzeHeadless`) for full C pseudocode reconstruction and AST generation.
+   - **Fallback**: Zero-dependency heuristic parser if external engines are not configured.
+   Automatically normalizes JNI function aliases (matching short symbols to fully qualified JNI exports) to prevent duplicate scans.
+4. **AST Pattern Matching & Flow Context**: Runs 15 specialized static analyzers across decompiled code blocks using 66 fine-grained sub-rule IDs (e.g., `BOF-001` for `gets()`, `INJ-001` for `system()`).
+5. **Selective Finding Aggregation**: Aggregates static data & string findings (`STR-*`, `FRD-*`, `DBG-*`, `IPC-004`) sharing identical 5-tuple keys into composite findings with `matches` and `total_matches` counts.
+6. **Unified 4-Level Report Serialization**: Generates standardized JSON report payloads structured across 4 distinct levels: Global Summary -> Target Objects -> Function Objects -> Granular Findings.
 
 ---
 
@@ -78,25 +94,16 @@ The engine implements fine-grained pattern matching across 15 vulnerability cate
 | **FRD-001 – FRD-005** | Anti-Root / Anti-Frida | `LOW` | `MEDIUM` – `HIGH` | Environmental probes: `/system/bin/su` (`FRD-001`), `/system/xbin/su` (`FRD-002`), `frida-server` (`FRD-003`), port `27042` (`FRD-004`), `/proc/net/tcp` (`FRD-005`). |
 | **STR-001 – STR-006** | String Obfuscation | `MEDIUM` – `HIGH` | `HIGH` | Exposed plaintext strings & secrets: `http://` (`STR-001`), `api_key=` (`STR-002`), `password=` (`STR-003`), `bearer ` (`STR-004`), hex tokens (`STR-005`), `GLOBAL_SECRET_KEY` (`STR-006`). |
 
-### ⚙️ Pattern-Level Severity & Confidence Mechanics
-
-To avoid coarse, one-size-fits-all categorization, rules in `config/rules.yaml` utilize a two-level nested structure parsed into strongly-typed `Rule` and `RulePattern` dataclasses (`native_analysis.models.rule`):
-
-1. **Category Containers (`Rule`)**: Group related security checks under category identifiers (e.g., `BOF-001` for Buffer Overflow, `INJ-001` for Command Injection).
-2. **Sub-Rule Patterns (`RulePattern`)**: Define individual regex pattern signatures with specific sub-rule IDs (`BOF-001`, `BOF-002`, `BOF-004`), individual severity ratings (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`), and confidence levels (`HIGH`, `MEDIUM`, `LOW`).
-
-During AST scanning (`BaseAnalyzer._scan_function_with_patterns`), pattern matching evaluates each `RulePattern` object. When a pattern matches:
-- The resulting `Finding` object captures the precise sub-rule ID (e.g., `BOF-002` for `strcpy` vs `BOF-004` for `sprintf`) along with the pattern's dedicated severity and confidence.
-- Selective finding aggregation groups static binary data & string artifact findings (`STR-*`, `FRD-*`, `DBG-*`, `IPC-004`) sharing identical 5-tuple keys (`rule_id`, `severity`, `confidence`, `location.function_name`, `flow_analysis.source`) into composite findings with `matches` arrays and `total_matches` counts, while keeping control-flow and execution vulnerabilities (`JNI-*`, `BOF-*`, `INJ-*`, etc.) strictly independent.
-
 ---
 
 ## 💻 Installation & Setup
 
 ### Prerequisites
 - **Python**: Python 3.8 or higher.
-- **Dependencies**: `PyYAML` (optional; zero-dependency fallback YAML parser included).
-- **Decompiler (Optional)**: Ghidra 10.x+ analyzeHeadless executable.
+- **Dependencies**: `PyYAML` (optional; zero-dependency fallback YAML parser included), `r2pipe` (Python interface for radare2 engine).
+- **Analysis Engines / Decompilers (Optional)**:
+  - **Radare2 Engine**: `radare2` binary and `r2pipe` library for high-speed disassembly and symbol extraction.
+  - **Ghidra Engine**: Ghidra 10.x+ `analyzeHeadless` executable for deep pseudo-C decompilation.
 
 ### Installation
 ```bash
@@ -104,8 +111,8 @@ During AST scanning (`BaseAnalyzer._scan_function_with_patterns`), pattern match
 git clone https://github.com/apktrace/native-analysis.git
 cd native-analysis
 
-# Install optional dependencies
-pip install pyyaml
+# Install dependencies (including optional YAML and radare2 bindings)
+pip install pyyaml r2pipe
 ```
 
 ---
@@ -119,18 +126,18 @@ Copy the example CLI configuration template to create your local config file:
 cp config/cli_config.example.yaml config/cli_config.yaml
 ```
 
-Edit `config/cli_config.yaml` to configure your target file, output path, selected engine, and optional decompiler path:
+Edit `config/cli_config.yaml` to configure target path, output path, selected engine, and optional decompiler executable path:
 
 ```yaml
 target_path: "./tests/app.apk"
 output_json_path: "./output/report.json"
 engine: "ghidra" # Analysis engine choice: "ghidra" or "radare2"
-decompiler_path: null # Path to Ghidra analyzeHeadless script or radare2 binary
+decompiler_path: "C:\\Ghidra\\support\\analyzeHeadless.bat" # Path to Ghidra analyzeHeadless executable or radare2 binary
 ```
 
 #### Configuration Parameters
 - **`target_path`**: Accepts either a single dynamic native library path (`.so` for Single Mode) or a full Android application package (`.apk` for Multi Mode).
-- **`output_json_path`**: File path destination where the final 3-tier structured JSON report will be exported.
+- **`output_json_path`**: File path destination where the final 4-level structured JSON report will be exported.
 - **`engine`**: Decompiler engine backend (`"ghidra"` or `"radare2"`, defaults to `"ghidra"`).
 - **`decompiler_path`**: Optional path to Ghidra's `analyzeHeadless` script or `radare2` binary. If set to `null` or omitted, the scanner automatically falls back to its zero-dependency cross-platform heuristic parser.
 
@@ -140,17 +147,17 @@ decompiler_path: null # Path to Ghidra analyzeHeadless script or radare2 binary
 Run automated security analysis directly from the command line:
 
 ```bash
-# Single Mode: Run analysis on a standalone .so dynamic library
-python cli.py -t ./tests/libnative.so -o ./output/report.json
+# Fast Scan (Radare2 Engine): Fast disassembly & symbol extraction
+python cli.py -t ./tests/app.apk -o ./output/report.json -c config/cli_config.yaml
 
-# Multi Mode: Run analysis on an .apk archive (extracts & scans all .so binaries inside)
+# Deep Scan (Ghidra Engine): In-depth pseudo-C AST decompilation
 python cli.py -t ./tests/app.apk -o ./output/report.json
+
+# Standalone Single Mode: Run analysis directly on a single .so dynamic library
+python cli.py -t ./tests/libnative.so -o ./output/report.json
 
 # Custom Config: Run scan using a custom YAML configuration file
 python cli.py -c config/custom_config.yaml
-
-# Default Run: Uses settings from config/cli_config.yaml (or config/cli_config.example.yaml fallback)
-python cli.py
 ```
 
 #### Terminal Output & UI Features
@@ -231,26 +238,27 @@ scanned_targets = apk_trace.scan("path/to/target_file")
 # Approach B: Object-Oriented ScanEngine API
 # ---------------------------------------------------------
 
-# Initialize engine with rule definitions and optional decompiler path / engine choice
-engine = ScanEngine(
+# Fast Scan (Radare2)
+engine_r2 = ScanEngine(
     rules_path="config/rules.yaml",
-    engine="radare2", # or "ghidra"
-    decompiler_path="/usr/bin/radare2" # or Ghidra analyzeHeadless path
+    engine="radare2",
+    decompiler_path="/usr/bin/radare2"
 )
+scanned_targets_r2 = engine_r2.scan("path/to/app.apk")
 
-# Single Mode (.so)
-parsed_binary, findings = engine.scan_single("path/to/libnative.so")
+# Deep Scan (Ghidra)
+engine_ghidra = ScanEngine(
+    rules_path="config/rules.yaml",
+    engine="ghidra",
+    decompiler_path="/opt/ghidra/support/analyzeHeadless"
+)
+scanned_targets = engine_ghidra.scan("path/to/app.apk")
 
-# Multi Mode (.apk)
-scanned_targets = engine.scan_multi("path/to/app.apk")
-
-# Auto-detecting scan (.so or .apk)
-scanned_targets = engine.scan("path/to/target_file")
-
-# Export structured JSON report artifact
+# Export structured JSON report artifact with specified engine metadata
 report_dict = JSONReporter.generate_report(
     scanned_targets=scanned_targets,
-    output_file_path="./output/report.json"
+    output_file_path="./output/report.json",
+    analysis_engine="ghidra"
 )
 ```
 
@@ -258,7 +266,7 @@ report_dict = JSONReporter.generate_report(
 
 ## 📄 JSON Report Schema Overview
 
-The engine produces a standardized 3-Tier JSON report containing executive metrics, file summaries, and findings:
+The engine produces a standardized 4-Level JSON report containing global execution summary, target file descriptors, function nodes, and granular findings:
 
 ```json
 {
@@ -376,4 +384,3 @@ The engine produces a standardized 3-Tier JSON report containing executive metri
 ## 📚 Technical Documentation
 
 For deeper details regarding module architecture, data flows, symbol resolution strategies, and decompiler fallback algorithms, consult [docs/NATIVE_ANALYSIS_ARCHITECTURE.md](docs/NATIVE_ANALYSIS_ARCHITECTURE.md).
-

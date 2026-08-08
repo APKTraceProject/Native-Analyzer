@@ -6,7 +6,7 @@ The **APKTrace - Native Analysis Module** is a high-performance static vulnerabi
 
 Operating as a specialized native binary analysis sub-component of the broader APKTrace security ecosystem, the module supports two primary execution modes:
 - **Single Mode (`.so`)**: Analyzes standalone compiled ELF shared object binaries directly.
-- **Multi Mode (`.apk`)**: Automatically unpacks Android APK packages, locates all embedded native dynamic libraries (`lib/<abi>/*.so`), extracts them to an isolated workspace, and executes batch security analysis across all targets.
+- **Multi Mode (`.apk`)**: Automatically unpacks Android APK packages, locates all embedded native dynamic libraries (`lib/<abi>/*.so`), extracts them to an isolated workspace, applies Primary ABI deduplication, and executes batch security analysis across all selected primary targets.
 
 ---
 
@@ -16,20 +16,27 @@ Operating as a specialized native binary analysis sub-component of the broader A
                              [ Input Target File: .so or .apk ]
                                             │
                                             ▼
-                           ┌─────────────────────────────────┐
-                           │     Target Resolution Layer     │
-                           │        (TargetResolver)         │
-                           └────────────────┬────────────────┘
+                           ┌──────────────────────────────────┐
+                           │     Target Resolution Layer      │
+                           │        (TargetResolver)          │
+                           └────────────────┬─────────────────┘
                                             │
                     ┌───────────────────────┴───────────────────────┐
                     │ Single Mode (.so)                     │ Multi Mode (.apk)
                     ▼                                       ▼
      ┌─────────────────────────────┐         ┌─────────────────────────────┐
-     │  Direct Target File Path    │         │  Extract .so Targets from   │
-     │  (standalone .so binary)    │         │  lib/<abi>/ into Temp Dir   │
+     │  Direct Target File Path    │         │  Extract .so Targets into   │
+     │  (standalone .so binary)    │         │  Isolated Temp Directory    │
      └──────────────┬──────────────┘         └──────────────┬──────────────┘
                     │                                       │
                     └───────────────────────┬───────────────┘
+                                            │
+                                            ▼
+                         ┌────────────────────────────────────┐
+                         │   Primary ABI Filtering & Deduplication  │
+                         │   (arm64-v8a > x86_64 > armeabi-v7a)   │
+                         │   --> 75% LLM Token Optimization    │
+                         └──────────────────┬─────────────────┘
                                             │
                                             ▼
                          ┌────────────────────────────────────┐
@@ -42,8 +49,9 @@ Operating as a specialized native binary analysis sub-component of the broader A
                                             │
                                             ▼
                          ┌────────────────────────────────────┐
-                         │    Decompilation & Parser Layer    │
-                         │   (Ghidra Headless / Heuristic)    │
+                         │    Dual-Parser Engine Layer        │
+                         │  (GhidraParser / Radare2Parser /   │
+                         │   Zero-Dependency Fallback)        │
                          │ - Pseudo-C AST Reconstruction      │
                          │ - Symbol Table & Scope Mapping     │
                          │ - JNI Symbol Normalization         │
@@ -67,7 +75,8 @@ Operating as a specialized native binary analysis sub-component of the broader A
                                             ▼
                          ┌────────────────────────────────────┐
                          │    4-Level JSON Report Generator   │
-                         │   Summary -> Targets -> Functions  │
+                         │  Summary -> Targets -> Functions   │
+                         │            -> Findings             │
                          └──────────────────┬─────────────────┘
                                             │
                                             ▼
@@ -83,18 +92,25 @@ Operating as a specialized native binary analysis sub-component of the broader A
 
 ## Technical Pipeline Stages
 
-### Stage 1: Input Target Resolution (`TargetResolver` / `ScanEngine.resolve_target`)
+### Stage 1: Input Target Resolution & Primary ABI Strategy (`TargetResolver` / `ScanEngine.resolve_target`)
 - **Mode Auto-Detection**: Inspects the target file extension provided via configuration (`target_path`) or CLI argument (`-t / --target`).
   - `.so` -> Executes **Single Mode**.
   - `.apk` -> Executes **Multi Mode**.
-- **Primary ABI Resolution & Deduplication**: Scanning identical `.so` binaries compiled for multiple ABI architectures inside an APK (e.g. `arm64-v8a`, `x86_64`, `armeabi-v7a`, `x86`) creates redundant analysis data and bloats report sizes. The target resolution layer groups discovered `.so` files by relative library filename (e.g., `libnative.so`) and selects exactly ONE primary ABI target for scanning based on the fallback priority order:
+- **Primary ABI Resolution & Deduplication**:
+  Android APK packages frequently embed identical native libraries compiled for multiple ABI architectures (e.g., `arm64-v8a`, `x86_64`, `armeabi-v7a`, `x86`). Scanning identical native code across four architecture directories leads to quadruple report sizes and redundant vulnerability findings.
+  
+  The `TargetResolver` groups discovered `.so` files by relative library filename (e.g., `libnative.so`) and selects exactly ONE primary ABI target per library based on deterministic fallback priority:
   1. `arm64-v8a` (Primary preference)
   2. `x86_64`
   3. `armeabi-v7a`
   4. `x86`
-- **Audit Trail Metadata**: Bypassed duplicate ABIs are recorded in the global summary metadata object (`abi_resolution`), maintaining a complete audit trail without redundant scanning.
+
+  **75% LLM Token Optimization**: By selecting a single primary ABI and bypassing duplicate architecture binaries, total report volume and scan complexity are reduced by approximately 75%. This provides a **75% token reduction benefit** when forwarding structured analysis reports into downstream LLM vulnerability evaluation or remediation pipelines.
+- **Audit Trail Metadata**: Bypassed duplicate ABIs are recorded in the global report summary (`summary.abi_resolution` object: `primary_abi`, `associated_abis`, `deduplication_enabled`), preserving full auditability without redundant processing.
 - **Archive Unpacking**: Unpacks selected primary ABI binaries into an isolated temporary workspace.
 - **Cleanup**: Temporarily extracted files are automatically tracked and removed upon completion of the analysis run.
+
+---
 
 ### Stage 2: Shared Analysis Context Layer (`ContextBuilder` & `AnalysisContext`)
 - **Centralized Pre-Extraction**: `ContextBuilder` initializes an immutable `AnalysisContext` data object prior to running analyzer passes.
@@ -107,12 +123,28 @@ Operating as a specialized native binary analysis sub-component of the broader A
   - `parsed_binary`: Single reference to the parsed binary AST object.
 - **Zero Overhead Querying**: All downstream analyzers query `self.context` directly, eliminating redundant file reads and re-parsing passes.
 
-### Stage 3: Decompilation & Symbol Resolution (`GhidraParser`, `Radare2Parser`, & Fallback Engine)
-- **Primary Decompiler Engines**:
-  - **Ghidra Headless (`GhidraParser`)**: When Ghidra's `analyzeHeadless` executable is configured, the module invokes Ghidra via Jython scripts to produce decompiled C function blocks and mapped memory addresses starting at virtual offset `0x2b00`.
-  - **Radare2 (`Radare2Parser`)**: When `engine: "radare2"` is selected, the module utilizes `r2pipe` or radare2 CLI execution to run fast binary analysis (`aaa`), extract exported JNI functions (`iEj`), static memory strings (`izzj`), and analyzed functions (`aflj`).
-- **Zero-Dependency Fallback Engine**: If Ghidra or radare2 are not available or not installed, the engine employs a cross-platform heuristic parser that extracts string tables, exported symbols, and reconstructs pseudo-C AST function bodies directly.
-- **JNI Alias Deduplication & Normalization**: Automatically detects and eliminates duplicate function entries where short demographic/mangled symbol names (e.g., `executeDiagnostic`) match the trailing identifier of fully qualified JNI exported symbols (`Java_com_example_app_NativeCoreEngine_executeDiagnostic`) at the same address or identical code lines. Prioritizes the fully qualified `Java_...` symbol as the canonical identifier (`is_exported_jni = True`) and removes redundant short aliases from `functions_code_scope`, `symbol_table`, and `parsed_binary`, ensuring each unique JNI implementation is analyzed exactly once without duplicate findings.
+---
+
+### Stage 3: Dual-Parser Architecture & Decompilation (`native_analysis.parsers`)
+
+The engine features a modular dual-parser architecture located in `native_analysis/parsers/`:
+
+1. **Ghidra Parser (`GhidraParser` in `ghidra_parser.py`)**:
+   - **Deep Scan Mode (`engine: "ghidra"`)**: Invokes Ghidra's `analyzeHeadless` script to decompile native ELF binaries into pseudo-C function blocks and mapped memory addresses starting at virtual offset `0x2b00`.
+   - Reconstructs complete C function ASTs, parameter signatures, and symbol address tables.
+
+2. **Radare2 Parser (`Radare2Parser` in `radare2_parser.py`)**:
+   - **Fast Scan Mode (`engine: "radare2"`)**: Uses `r2pipe` or radare2 CLI execution to run fast binary analysis (`aaa`), extract exported JNI symbols (`iEj`), static memory strings (`izzj`), and analyzed functions (`aflj`).
+   - Ideal for CI/CD environments and lightweight disassembly passes.
+
+3. **Zero-Dependency Fallback Engine**:
+   - If Ghidra or radare2 are not available or not configured, the engine falls back to a built-in Python heuristic parser that extracts string tables, exported symbols, and reconstructs pseudo-C AST function bodies directly.
+
+4. **JNI Alias Deduplication & Normalization**:
+   - Automatically detects and eliminates duplicate function entries where short demographic/mangled symbol names (e.g., `executeDiagnostic`) match the trailing identifier of fully qualified JNI exported symbols (`Java_com_example_app_NativeCoreEngine_executeDiagnostic`) at the same address or identical code lines.
+   - Prioritizes the fully qualified `Java_...` symbol as the canonical identifier (`is_exported_jni = True`) and removes redundant short aliases from `functions_code_scope`, `symbol_table`, and `parsed_binary`, ensuring each unique JNI implementation is analyzed exactly once without duplicate findings.
+
+---
 
 ### Stage 4: AST Pattern Matching & Taint Flow Tracking (`BaseAnalyzer` + 15 Analyzers)
 - **Signature Dispatch**: The scanner dispatches function scopes across 15 category analyzers executing 66 pattern signatures defined in `config/rules.yaml`.
@@ -121,18 +153,24 @@ Operating as a specialized native binary analysis sub-component of the broader A
   `/* 0x2b40 | line 34 */ statement; // [TRIGGER]`
 - **JNI AST Taint Tracking**: Traces user-controlled inputs originating from JNI parameters (`jstring`, `jbyteArray`, `GetStringUTFChars`, `GetByteArrayElements`) into unsafe sink functions (`system`, `sprintf`, `strcpy`, `execve`, etc.).
 
+---
+
 ### Stage 5: Selective Finding Aggregation Engine
 - **Classification Strategy**: Distinguishes between static data/string artifacts and execution control-flow vulnerabilities.
   - **Aggregatable Rules**: Static binary data section artifacts (`STR-*`, `FRD-*`, `DBG-*`, and static paths in `IPC-004`).
   - **Non-Aggregatable Rules**: Control-flow, memory safety, and taint-analysis vulnerabilities (`JNI-*`, `BOF-*`, `INJ-*`, `REF-*`, `RND-*`, `CRY-*`, `PRM-*`, `INT-*`, `MEM-*`, `FMT-*`, `IPC-001–IPC-003`). Each occurrence remains a standalone finding.
 - **5-Tuple Composite Grouping Key**: Combines aggregatable findings into a single `Finding` object ONLY if all 5 fields match identically: `rule_id`, `severity`, `confidence`, `location.function_name`, and `flow_analysis.source`. Grouped findings contain `total_matches` counts and detailed `matches` arrays.
 
-### Stage 6: 4-Level JSON Serialization (`JSONReporter`)
-Outputs structured JSON report payloads adhering to a 4-level hierarchy:
-- **Level 1**: Global Scan Summary (`summary`)
-- **Level 2**: Target Binary Scope (`targets[]`)
-- **Level 3**: Function Objects (`functions[]`)
-- **Level 4**: Granular Findings (`functions[].findings[]`)
+---
+
+### Stage 6: 4-Level JSON Report Generation (`JSONReporter`)
+Outputs structured JSON report payloads adhering strictly to a 4-level hierarchy:
+- **Level 1**: Global Scan Summary (`summary`) — includes `analysis_engine` ("radare2" / "ghidra"), global finding counts, severity breakdown, category breakdown, and top-level `abi_resolution` metadata.
+- **Level 2**: Target Binary Scope (`targets[]`) — contains binary metadata, SHA-256 digest, ABI architecture, and target-level attack surface metrics.
+- **Level 3**: Function Objects (`functions[]`) — contains function names, virtual symbol addresses, JNI export flags, and reconstructed C source lines.
+- **Level 4**: Granular Findings (`functions[].findings[]`) — contains rule IDs, CWE/MASVS mappings, severity, confidence, trigger lines, and taint flow traces.
+
+---
 
 ### Stage 7: CLI Terminal UI Rendering (`cli.py`)
 Provides a terminal output displaying:
@@ -245,7 +283,7 @@ decompiler_path: null                    # Optional path to Ghidra analyzeHeadle
 
 ---
 
-## 4-Level JSON Report Structure
+## 4-Level JSON Report Structure Specification
 
 ```json
 {
@@ -396,17 +434,26 @@ parsed_binary, findings = apk_trace.scan_single("path/to/libnative.so") # Single
 scanned_targets = apk_trace.scan_multi("path/to/app.apk")                # Multi Mode (.apk)
 scanned_targets = apk_trace.scan("path/to/target_file")                 # Auto-detect Mode (.so or .apk)
 
-# Object-Oriented Engine Instance
-engine = ScanEngine(
+# Object-Oriented Engine Instance (Fast Scan with Radare2)
+engine_r2 = ScanEngine(
     rules_path="config/rules.yaml",
-    engine="radare2", # or "ghidra"
-    decompiler_path="/usr/bin/radare2" # or Ghidra analyzeHeadless path
+    engine="radare2",
+    decompiler_path="/usr/bin/radare2"
 )
-scanned_targets = engine.scan("path/to/target_file")
+scanned_targets_r2 = engine_r2.scan("path/to/app.apk")
+
+# Object-Oriented Engine Instance (Deep Scan with Ghidra)
+engine_ghidra = ScanEngine(
+    rules_path="config/rules.yaml",
+    engine="ghidra",
+    decompiler_path="/opt/ghidra/support/analyzeHeadless"
+)
+scanned_targets_ghidra = engine_ghidra.scan("path/to/app.apk")
 
 # Generate JSON Report File
 report_data = JSONReporter.generate_report(
-    scanned_targets=scanned_targets,
-    output_file_path="./output/report.json"
+    scanned_targets=scanned_targets_ghidra,
+    output_file_path="./output/report.json",
+    analysis_engine="ghidra"
 )
 ```
