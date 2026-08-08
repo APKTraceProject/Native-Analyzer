@@ -6,7 +6,7 @@ and fallback heuristic AST reconstructors.
 """
 
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Optional, List
 from native_analysis.models.parsed_binary import ParsedBinary
 
 class BaseParser(ABC):
@@ -18,7 +18,13 @@ class BaseParser(ABC):
     """
 
     @abstractmethod
-    def parse(self, target_so_path: str, apk_relative_path: Optional[str] = None) -> ParsedBinary:
+    def parse(
+        self,
+        target_so_path: str,
+        apk_relative_path: Optional[str] = None,
+        primary_abi: Optional[str] = None,
+        associated_abis: Optional[List[str]] = None
+    ) -> ParsedBinary:
         """
         Parses binary at specified filesystem path into a ParsedBinary model.
         

@@ -106,13 +106,17 @@ class ScanEngine:
     def scan_target(
         self,
         target_so_path: str,
-        apk_relative_path: Optional[str] = None
+        apk_relative_path: Optional[str] = None,
+        primary_abi: Optional[str] = None,
+        associated_abis: Optional[List[str]] = None
     ) -> Tuple[ParsedBinary, List[Finding]]:
         """
         Parses target shared library (.so) and runs all 15 vulnerability analyzers.
         
         @param target_so_path File path to target dynamic library.
         @param apk_relative_path Relative path string used in JSON reporting.
+        @param primary_abi Primary architecture identifier for target library group.
+        @param associated_abis List of bypassed duplicate architecture identifiers.
         @return Tuple[ParsedBinary, List[Finding]] AST payload and list of findings.
         """
         try:
@@ -129,6 +133,12 @@ class ScanEngine:
             )
             context = context_builder.build()
             parsed_binary = context.parsed_binary
+
+            if primary_abi:
+                parsed_binary.primary_abi = primary_abi
+            if associated_abis is not None:
+                parsed_binary.associated_abis = associated_abis
+
             all_findings: List[Finding] = []
 
             # Step 2: Iterate registered analyzers and evaluate rules using shared AnalysisContext
@@ -232,21 +242,48 @@ class ScanEngine:
 
         return final_findings
 
+    @staticmethod
+    def _extract_entry_abi(zf: zipfile.ZipFile, entry: str) -> str:
+        """
+        Extracts target ABI architecture from zip entry path (e.g. lib/arm64-v8a/libfoo.so)
+        or header inspection fallback.
+        """
+        parts = entry.split("/")
+        if len(parts) >= 2 and parts[0] == "lib":
+            abi_cand = parts[1]
+            if abi_cand in ["arm64-v8a", "x86_64", "armeabi-v7a", "x86"]:
+                return abi_cand
+        try:
+            header = zf.read(entry)[:20]
+            if len(header) >= 20 and header[:4] == b"\x7fELF":
+                machine_code = int.from_bytes(header[18:20], byteorder="little")
+                arch_map = {
+                    183: "arm64-v8a",
+                    62: "x86_64",
+                    40: "armeabi-v7a",
+                    3: "x86"
+                }
+                return arch_map.get(machine_code, "arm64-v8a")
+        except Exception:
+            pass
+        return "arm64-v8a"
+
     def resolve_target(
         self,
         target_path: str,
         temp_dir: Optional[str] = None
-    ) -> List[Tuple[str, str]]:
+    ) -> List[Tuple[str, str, str, List[str]]]:
         """
-        Resolves target input path using strict 2-mode policy:
-        - Single Mode (.so): returns [(resolved_target_path, "standalone/<filename>")]
-        - Multi Mode (.apk): extracts all .so binaries inside to temp_dir and returns list of [(extracted_so_path, apk_relative_path)]
+        Resolves target input path using strict 2-mode policy with ABI deduplication:
+        - Single Mode (.so): returns [(resolved_target_path, "standalone/<filename>", primary_abi, [])]
+        - Multi Mode (.apk): deduplicates .so binaries per unique library filename selecting 1 primary ABI target
+          and returns list of [(extracted_so_path, apk_relative_path, primary_abi, associated_abis)]
         
         Throws explicit error for missing file or invalid extension (not .so or .apk).
         
         @param target_path Path to .so or .apk target file.
         @param temp_dir Optional directory path to extract APK contents.
-        @return List[Tuple[str, str]] List of (extracted_or_local_so_path, relative_report_path) tuples.
+        @return List[Tuple[str, str, str, List[str]]] List of target resolution tuples.
         """
         resolved_path = ConfigLoader.resolve_target_path(target_path)
         if not resolved_path or not os.path.exists(resolved_path):
@@ -256,7 +293,17 @@ class ScanEngine:
         ext = os.path.splitext(target_path)[1].lower()
         if ext == ".so":
             filename = os.path.basename(target_path)
-            return [(target_path, f"standalone/{filename}")]
+            abi_arch = "arm64-v8a"
+            try:
+                with open(target_path, "rb") as f:
+                    header = f.read(20)
+                    if len(header) >= 20 and header[:4] == b"\x7fELF":
+                        machine_code = int.from_bytes(header[18:20], byteorder="little")
+                        arch_map = {183: "arm64-v8a", 62: "x86_64", 40: "armeabi-v7a", 3: "x86"}
+                        abi_arch = arch_map.get(machine_code, "arm64-v8a")
+            except Exception:
+                pass
+            return [(target_path, f"standalone/{filename}", abi_arch, [])]
         elif ext == ".apk":
             if not zipfile.is_zipfile(target_path):
                 raise ValueError(f"Target file '{target_path}' is not a valid zip/APK archive.")
@@ -266,11 +313,33 @@ class ScanEngine:
                 if not so_entries:
                     raise ValueError(f"No .so dynamic libraries found inside APK archive '{target_path}'.")
 
+                # Group entries by library base filename (e.g. libfoo.so)
+                groups: Dict[str, List[Tuple[str, str]]] = {}
+                for entry in so_entries:
+                    filename = os.path.basename(entry)
+                    abi = self._extract_entry_abi(zf, entry)
+                    if filename not in groups:
+                        groups[filename] = []
+                    groups[filename].append((entry, abi))
+
+                # Fallback priority map: 1. arm64-v8a -> 2. x86_64 -> 3. armeabi-v7a -> 4. x86
+                priority_map = {"arm64-v8a": 1, "x86_64": 2, "armeabi-v7a": 3, "x86": 4}
+
                 dest_dir = temp_dir or tempfile.mkdtemp(prefix="apktrace_apk_")
                 resolved_targets = []
-                for entry in so_entries:
-                    extracted_file = zf.extract(entry, path=dest_dir)
-                    resolved_targets.append((extracted_file, entry))
+
+                for filename, entry_list in groups.items():
+                    # Sort entries by ABI preference priority
+                    entry_list.sort(key=lambda x: priority_map.get(x[1], 99))
+                    primary_entry, primary_abi = entry_list[0]
+
+                    # Bypassed ABIs audit trail
+                    bypassed_abis = [abi for e, abi in entry_list[1:]]
+                    associated_abis = list(dict.fromkeys(bypassed_abis))
+
+                    extracted_file = zf.extract(primary_entry, path=dest_dir)
+                    resolved_targets.append((extracted_file, primary_entry, primary_abi, associated_abis))
+
                 return resolved_targets
         else:
             raise ValueError(
@@ -307,7 +376,7 @@ class ScanEngine:
         apk_path: str
     ) -> List[Tuple[ParsedBinary, List[Finding]]]:
         """
-        Executes multi mode security scan against an APK archive by extracting and scanning ALL .so binaries inside (no ABI filtering).
+        Executes multi mode security scan against an APK archive by extracting and scanning deduplicated primary ABI targets.
         Throws explicit error if extension is not .apk.
         
         @param apk_path Path to .apk app archive file.
@@ -325,10 +394,19 @@ class ScanEngine:
         with tempfile.TemporaryDirectory() as temp_dir:
             targets = self.resolve_target(apk_path, temp_dir=temp_dir)
             results = []
-            for extracted_so, rel_path in targets:
+            for item in targets:
+                if len(item) == 4:
+                    extracted_so, rel_path, primary_abi, associated_abis = item
+                else:
+                    extracted_so, rel_path = item[:2]
+                    primary_abi = None
+                    associated_abis = None
+
                 parsed_binary, findings = self.scan_target(
                     target_so_path=extracted_so,
-                    apk_relative_path=rel_path
+                    apk_relative_path=rel_path,
+                    primary_abi=primary_abi,
+                    associated_abis=associated_abis
                 )
                 results.append((parsed_binary, findings))
             return results

@@ -44,6 +44,8 @@ class ContextBuilder:
             "file_name": file_name,
             "apk_relative_path": apk_rel,
             "abi_architecture": abi_arch,
+            "primary_abi": parsed_binary.primary_abi or abi_arch,
+            "associated_abis": parsed_binary.associated_abis,
             "sha256": sha256,
             "target_path": self.target_path,
         }

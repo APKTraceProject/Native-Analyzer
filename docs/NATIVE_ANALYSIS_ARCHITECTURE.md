@@ -83,11 +83,17 @@ Operating as a specialized native binary analysis sub-component of the broader A
 
 ## Technical Pipeline Stages
 
-### Stage 1: Input Target Resolution (`TargetResolver`)
+### Stage 1: Input Target Resolution (`TargetResolver` / `ScanEngine.resolve_target`)
 - **Mode Auto-Detection**: Inspects the target file extension provided via configuration (`target_path`) or CLI argument (`-t / --target`).
   - `.so` -> Executes **Single Mode**.
   - `.apk` -> Executes **Multi Mode**.
-- **Archive Unpacking**: For `.apk` files, `TargetResolver` opens the ZIP payload, identifies all dynamic libraries located under `lib/arm64-v8a/`, `lib/armeabi-v7a/`, `lib/x86_64/`, or `lib/x86/`, and extracts them into a sandboxed temporary directory.
+- **Primary ABI Resolution & Deduplication**: Scanning identical `.so` binaries compiled for multiple ABI architectures inside an APK (e.g. `arm64-v8a`, `x86_64`, `armeabi-v7a`, `x86`) creates redundant analysis data and bloats report sizes. The target resolution layer groups discovered `.so` files by relative library filename (e.g., `libnative.so`) and selects exactly ONE primary ABI target for scanning based on the fallback priority order:
+  1. `arm64-v8a` (Primary preference)
+  2. `x86_64`
+  3. `armeabi-v7a`
+  4. `x86`
+- **Audit Trail Metadata**: Bypassed duplicate ABIs are preserved in the target metadata (`primary_abi` and `associated_abis`), maintaining a complete audit trail without redundant scanning.
+- **Archive Unpacking**: Unpacks selected primary ABI binaries into an isolated temporary workspace.
 - **Cleanup**: Temporarily extracted files are automatically tracked and removed upon completion of the analysis run.
 
 ### Stage 2: Shared Analysis Context Layer (`ContextBuilder` & `AnalysisContext`)
@@ -249,8 +255,10 @@ ghidra_headless_path: null               # Optional Ghidra analyzeHeadless path
   "targets": [
     {
       "file_name": "libnative.so",
-      "apk_relative_path": "standalone/libnative.so",
+      "apk_relative_path": "lib/arm64-v8a/libnative.so",
       "abi_architecture": "arm64-v8a",
+      "primary_abi": "arm64-v8a",
+      "associated_abis": ["x86_64", "armeabi-v7a", "x86"],
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "target_summary": {
         "file_findings_count": 15,

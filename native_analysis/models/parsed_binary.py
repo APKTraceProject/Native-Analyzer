@@ -74,6 +74,8 @@ class ParsedBinary:
     abi_architecture: str
     sha256: str
     mitigations: BinaryMitigations
+    primary_abi: str = ""
+    associated_abis: List[str] = field(default_factory=list)
     functions: List[DecompiledFunction] = field(default_factory=list)
     strings: List[str] = field(default_factory=list)
     exported_jni_functions: List[str] = field(default_factory=list)

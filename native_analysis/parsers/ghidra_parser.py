@@ -93,12 +93,20 @@ class GhidraParser(BaseParser):
             relro=relro_status
         )
 
-    def parse(self, target_so_path: str, apk_relative_path: Optional[str] = None) -> ParsedBinary:
+    def parse(
+        self,
+        target_so_path: str,
+        apk_relative_path: Optional[str] = None,
+        primary_abi: Optional[str] = None,
+        associated_abis: Optional[List[str]] = None
+    ) -> ParsedBinary:
         """
         Executes Ghidra Headless decompilation or triggers cross-platform fallback parsing.
         
         @param target_so_path Filesystem path to target ELF binary.
         @param apk_relative_path Relative path string used in reporting.
+        @param primary_abi Primary target ABI architecture string.
+        @param associated_abis Bypassed ABI architectures list.
         @return ParsedBinary Complete AST model object.
         """
 
@@ -127,7 +135,9 @@ class GhidraParser(BaseParser):
                         abi_arch=abi_arch,
                         sha256=sha256_hash,
                         mitigations=mitigations,
-                        raw_data=parsed_data
+                        raw_data=parsed_data,
+                        primary_abi=primary_abi,
+                        associated_abis=associated_abis
                     )
             except Exception as e:
                 # Log non-fatal error to fallback
@@ -141,7 +151,9 @@ class GhidraParser(BaseParser):
             apk_relative_path=apk_relative_path,
             abi_arch=abi_arch,
             sha256=sha256_hash,
-            mitigations=mitigations
+            mitigations=mitigations,
+            primary_abi=primary_abi,
+            associated_abis=associated_abis
         )
 
     def _run_ghidra_headless(self, target_so_path: str) -> Dict[str, Any]:
@@ -292,7 +304,9 @@ run_export()
         abi_arch: str,
         sha256: str,
         mitigations: BinaryMitigations,
-        raw_data: Dict[str, Any]
+        raw_data: Dict[str, Any],
+        primary_abi: Optional[str] = None,
+        associated_abis: Optional[List[str]] = None
     ) -> ParsedBinary:
         """Constructs ParsedBinary object from Ghidra output JSON structure."""
         functions = []
@@ -323,6 +337,8 @@ run_export()
             file_name=file_name,
             apk_relative_path=apk_relative_path,
             abi_architecture=abi_arch,
+            primary_abi=primary_abi or abi_arch,
+            associated_abis=associated_abis or [],
             sha256=sha256,
             mitigations=mitigations,
             functions=functions,
@@ -339,7 +355,9 @@ run_export()
         apk_relative_path: str,
         abi_arch: str,
         sha256: str,
-        mitigations: BinaryMitigations
+        mitigations: BinaryMitigations,
+        primary_abi: Optional[str] = None,
+        associated_abis: Optional[List[str]] = None
     ) -> ParsedBinary:
         """
         Cross-platform fallback parsing logic extracting ASCII/UTF-8 strings and ELF symbol tables.
@@ -536,6 +554,8 @@ run_export()
             file_name=file_name,
             apk_relative_path=apk_relative_path,
             abi_architecture=abi_arch,
+            primary_abi=primary_abi or abi_arch,
+            associated_abis=associated_abis or [],
             sha256=sha256,
             mitigations=mitigations,
             functions=functions,

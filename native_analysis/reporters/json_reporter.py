@@ -216,6 +216,8 @@ class JSONReporter:
                 "file_name": binary.file_name,
                 "apk_relative_path": binary.apk_relative_path,
                 "abi_architecture": binary.abi_architecture,
+                "primary_abi": binary.primary_abi or binary.abi_architecture,
+                "associated_abis": binary.associated_abis,
                 "sha256": binary.sha256,
                 "target_summary": {
                     "file_findings_count": len(findings),

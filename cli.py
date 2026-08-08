@@ -259,6 +259,14 @@ def main():
             print_progress("*", COLOR_CYAN, "SCAN", f"Extracting native targets from APK archive '{target_filename}'...")
             resolved_targets = engine.resolve_target(target_path)
             binary_count = len(resolved_targets)
+            
+            total_found = sum(1 + len(t[3]) for t in resolved_targets if len(t) > 3)
+            if binary_count == 1 and len(resolved_targets[0]) >= 3:
+                lib_filename = os.path.basename(resolved_targets[0][1])
+                primary_abi = resolved_targets[0][2]
+                print_progress("+", COLOR_GREEN, "INFO", f"Found {total_found} binaries across ABIs -> Deduplicated to 1 primary target ({lib_filename} - {primary_abi})")
+            else:
+                print_progress("+", COLOR_GREEN, "INFO", f"Found {total_found} binaries across ABIs -> Deduplicated to {binary_count} primary targets")
 
         # Print formatted execution metadata header
         print_execution_metadata(
