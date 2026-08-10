@@ -4,9 +4,11 @@ Scan Engine orchestrator executing all 15 analyzers, managing deduplication and 
 
 import os
 import sys
+import time
 import traceback
 import zipfile
 import tempfile
+from datetime import datetime, timezone
 from typing import List, Dict, Any, Tuple, Optional
 from native_analysis.models.parsed_binary import ParsedBinary
 from native_analysis.models.finding import Finding
@@ -15,6 +17,7 @@ from native_analysis.models.context import AnalysisContext
 from native_analysis.parsers import GhidraParser, Radare2Parser
 from native_analysis.core.config_loader import ConfigLoader
 from native_analysis.core.context_builder import ContextBuilder
+from native_analysis.reporters.json_reporter import JSONReporter
 
 # Import all 15 Analyzers
 from native_analysis.analyzers.buffer_overflow import BufferOverflowAnalyzer
@@ -65,18 +68,16 @@ class ScanEngine:
 
     def __init__(
         self,
-        rules_path: str = "config/rules.yaml",
         decompiler_path: Optional[str] = None,
         engine: str = "ghidra"
     ):
         """
-        Initializes engine, loads YAML rule signatures, and configures binary decompiler/parser.
+        Initializes engine, statically loads rules.yaml signatures internally, and configures binary decompiler/parser.
         
-        @param rules_path Path to rules.yaml config file.
         @param decompiler_path Optional path to decompiler executable (Ghidra analyzeHeadless or radare2 binary).
         @param engine Decompiler engine choice ("ghidra" or "radare2").
         """
-        self.rules = ConfigLoader.load_rules(rules_path)
+        self.rules = ConfigLoader.load_rules()
         self.rules_by_id: Dict[str, Rule] = {r.id: r for r in self.rules}
         
         self.decompiler_path = decompiler_path
@@ -86,6 +87,276 @@ class ScanEngine:
             self.parser = Radare2Parser(decompiler_path=decompiler_path)
         else:
             self.parser = GhidraParser(decompiler_path=decompiler_path)
+
+    def build_rule_category_map(self) -> Dict[str, str]:
+        """
+        Builds a lookup map from rule/pattern IDs to human-readable vulnerability categories.
+        
+        @return Dict[str, str] Rule ID to category mapping.
+        """
+        rule_map = {}
+        for rule in self.rules:
+            cat = rule.category or rule.name or "General Vulnerability"
+            if rule.id:
+                rule_map[rule.id] = cat
+            for pat in rule.patterns:
+                if pat.id:
+                    rule_map[pat.id] = cat
+        return rule_map
+
+    def get_finding_category(self, rule_id: str, rule_map: Dict[str, str]) -> str:
+        """
+        Determines category string for a finding based on rule_id or prefix fallback.
+        
+        @param rule_id Rule ID string (e.g. 'BOF-001').
+        @param rule_map Pre-built rule category dictionary.
+        @return str Category display name.
+        """
+        if rule_id in rule_map:
+            return rule_map[rule_id]
+        
+        prefix = rule_id.split("-")[0].upper() if "-" in rule_id else rule_id[:3].upper()
+        prefix_map = {
+            "BOF": "Buffer Overflow",
+            "INJ": "Command Injection",
+            "FMT": "Format String",
+            "JNI": "JNI Boundary Leak",
+            "MEM": "Memory Management",
+            "INT": "Integer Overflow",
+            "OVF": "Integer Overflow",
+            "PRM": "File Permission Flaws",
+            "PERM": "File Permission Flaws",
+            "RND": "Insecure Randomness",
+            "RNG": "Insecure Randomness",
+            "RAND": "Insecure Randomness",
+            "CRY": "Weak Cryptography",
+            "NPD": "Null Pointer Dereference",
+            "NUL": "Null Pointer Dereference",
+            "NULL": "Null Pointer Dereference",
+            "IPC": "Insecure IPC",
+            "DBG": "Anti-Debugging",
+            "FRD": "Anti-Root & Frida Detection",
+            "ROOT": "Anti-Root & Frida Detection",
+            "REF": "JNI Reflection Abuse",
+            "STR": "String Obfuscation"
+        }
+        return prefix_map.get(prefix, f"Category ({prefix})")
+
+    def execute(
+        self,
+        target_path: str,
+        output_path: str = "./output/report.json",
+        config_file_used: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Primary workflow orchestrator executing the full native security analysis task pipeline:
+        - Target path resolution & 2-mode target identification (.so single or .apk multi)
+        - Dynamic library extraction & Primary ABI deduplication
+        - Parallel/Sequential decompilation & 15-category AST vulnerability scanning
+        - Invokes JSONReporter sub-module to serialize 4-level JSON report artifact
+        - Aggregates metrics, severity counts, category counts, progress logs, and execution status
+        
+        Returns structured payload schema:
+        {
+            "success": True/False,
+            "metadata": {
+                "config_file": "...",
+                "config_content": { ... },
+                "execution": { ... }
+            },
+            "summary": { ... }
+        }
+        
+        @param target_path Path to target binary (.so) or application package (.apk).
+        @param output_path File destination path for JSON report artifact.
+        @param config_file_used Optional path string of loaded YAML configuration file.
+        @return Dict[str, Any] Complete execution summary payload for CLI or caller consumption.
+        """
+        start_time = time.time()
+        timestamp_str = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        progress_logs: List[Tuple[str, str, str, str]] = []
+
+        if config_file_used:
+            progress_logs.append(("+", "COLOR_GREEN", "INFO", f"Config loaded successfully from '{config_file_used}'."))
+
+        mode_str = "UNKNOWN"
+        binary_count = 0
+        target_filename = os.path.basename(target_path) if target_path else ""
+
+        active_analyzers = [
+            "buffer_overflow", "command_injection", "format_string", "weak_crypto",
+            "anti_debugging", "memory_management", "jni_boundary_leaks",
+            "file_permission_flaws", "integer_overflow", "insecure_ipc",
+            "null_pointer_deref", "insecure_random", "jni_reflection_abuse",
+            "anti_root_frida", "string_obfuscation"
+        ]
+
+        try:
+            resolved_target_path = ConfigLoader.resolve_target_path(target_path)
+            if not resolved_target_path or not os.path.exists(resolved_target_path):
+                raise FileNotFoundError(f"Target file '{target_path}' not found.")
+
+            ext = os.path.splitext(resolved_target_path)[1].lower()
+            if ext not in (".so", ".apk"):
+                raise ValueError(
+                    f"Invalid target file extension '{ext}' for '{target_path}'. "
+                    "Only .so (Single Mode) and .apk (Multi Mode) are supported."
+                )
+
+            target_filename = os.path.basename(resolved_target_path)
+
+            if ext == ".so":
+                mode_str = "SINGLE (.so)"
+                binary_count = 1
+            else:
+                mode_str = "MULTI (.apk)"
+                progress_logs.append(("*", "COLOR_CYAN", "SCAN", f"Extracting native targets from APK archive '{target_filename}'..."))
+                resolved_targets = self.resolve_target(resolved_target_path)
+                binary_count = len(resolved_targets)
+
+                total_found = sum(1 + len(t[3]) for t in resolved_targets if len(t) > 3)
+                if binary_count == 1 and len(resolved_targets[0]) >= 3:
+                    lib_filename = os.path.basename(resolved_targets[0][1])
+                    primary_abi = resolved_targets[0][2]
+                    progress_logs.append(("+", "COLOR_GREEN", "INFO", f"Found {total_found} binaries across ABIs -> Deduplicated to 1 primary target ({lib_filename} - {primary_abi})"))
+                else:
+                    progress_logs.append(("+", "COLOR_GREEN", "INFO", f"Found {total_found} binaries across ABIs -> Deduplicated to {binary_count} primary targets"))
+
+            engine_label = "Radare2" if self.engine_name == "radare2" else "Ghidra"
+            progress_logs.append(("*", "COLOR_CYAN", "SCAN", f"Decompiling & analyzing symbols via {engine_label}..."))
+            progress_logs.append(("*", "COLOR_YELLOW", "TAINT", "Running variable flow analysis & JNI context extraction..."))
+
+            # Step 1: Run security scan engine across targets
+            scanned_targets = self.scan(resolved_target_path)
+
+            # Step 2: Generate 4-level JSON report artifact via JSONReporter sub-module
+            report_payload = JSONReporter.generate_report(
+                scanned_targets=scanned_targets,
+                output_file_path=output_path,
+                analysis_engine=self.engine_name
+            )
+            progress_logs.append(("✔", "COLOR_GREEN", "SUCCESS", f"Report generated successfully at {output_path}"))
+
+            # Step 3: Aggregate execution statistics and category metrics
+            total_files = len(scanned_targets)
+            all_findings = []
+            for _, findings in scanned_targets:
+                all_findings.extend(findings)
+            total_findings = len(all_findings)
+
+            discovered_abis: List[str] = []
+            primary_abi = "N/A"
+            if scanned_targets:
+                first_pb = scanned_targets[0][0]
+                primary_abi = getattr(first_pb, "primary_abi", None) or getattr(first_pb, "abi_architecture", None) or "arm64-v8a"
+                for pb, _ in scanned_targets:
+                    p_abi = getattr(pb, "primary_abi", None) or getattr(pb, "abi_architecture", None)
+                    if p_abi and p_abi not in discovered_abis:
+                        discovered_abis.append(p_abi)
+                    assoc = getattr(pb, "associated_abis", []) or []
+                    for a_abi in assoc:
+                        if a_abi and a_abi not in discovered_abis:
+                            discovered_abis.append(a_abi)
+
+            sev_counts = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0}
+            rule_counts: Dict[str, int] = {}
+
+            for finding in all_findings:
+                sev = getattr(finding, "severity", "MEDIUM").upper()
+                if sev in sev_counts:
+                    sev_counts[sev] += 1
+                else:
+                    sev_counts["MEDIUM"] += 1
+
+                rule_id = getattr(finding, "rule_id", "GEN-000")
+                rule_counts[rule_id] = rule_counts.get(rule_id, 0) + 1
+
+            duration_seconds = round(time.time() - start_time, 2)
+
+            by_severity = {
+                "critical": sev_counts.get("CRITICAL", 0),
+                "high": sev_counts.get("HIGH", 0),
+                "medium": sev_counts.get("MEDIUM", 0),
+                "low": sev_counts.get("LOW", 0)
+            }
+
+            metadata_payload = {
+                "config_file": config_file_used or "config/cli_config.yaml",
+                "config_content": {
+                    "target_path": resolved_target_path,
+                    "output_json_path": output_path,
+                    "engine": self.engine_name,
+                    "decompiler_path": self.decompiler_path
+                },
+                "execution": {
+                    "timestamp": timestamp_str,
+                    "duration_seconds": duration_seconds,
+                    "active_analyzers": active_analyzers
+                }
+            }
+
+            summary_payload = {
+                "discovered_abis": discovered_abis,
+                "primary_abi": primary_abi,
+                "scanned_files_count": total_files,
+                "total_vulnerabilities": total_findings,
+                "by_category": rule_counts,
+                "by_severity": by_severity
+            }
+
+            return {
+                "success": True,
+                "metadata": metadata_payload,
+                "summary": summary_payload,
+                "progress_logs": progress_logs,
+                "scanned_targets": scanned_targets,
+                "report_payload": report_payload,
+                "error": None
+            }
+
+        except Exception as e:
+            err_msg = self.format_exception(e)
+            progress_logs.append(("X", "COLOR_RED", "ERROR", err_msg))
+            duration_seconds = round(time.time() - start_time, 2)
+
+            metadata_payload = {
+                "config_file": config_file_used or "config/cli_config.yaml",
+                "config_content": {
+                    "target_path": target_path,
+                    "output_json_path": output_path,
+                    "engine": self.engine_name,
+                    "decompiler_path": self.decompiler_path
+                },
+                "execution": {
+                    "timestamp": timestamp_str,
+                    "duration_seconds": duration_seconds,
+                    "active_analyzers": active_analyzers
+                }
+            }
+
+            summary_payload = {
+                "discovered_abis": [],
+                "primary_abi": "N/A",
+                "scanned_files_count": 0,
+                "total_vulnerabilities": 0,
+                "by_category": {},
+                "by_severity": {
+                    "critical": 0,
+                    "high": 0,
+                    "medium": 0,
+                    "low": 0
+                }
+            }
+
+            return {
+                "success": False,
+                "metadata": metadata_payload,
+                "summary": summary_payload,
+                "progress_logs": progress_logs,
+                "scanned_targets": [],
+                "report_payload": None,
+                "error": err_msg
+            }
 
     @staticmethod
     def format_exception(e: Exception) -> str:

@@ -17,6 +17,20 @@ Operating as a specialized native binary analysis sub-component of the broader A
                                             │
                                             ▼
                            ┌──────────────────────────────────┐
+                           │   CLI Interface Layer (cli.py)   │
+                           │ - Config & Argument Reader       │
+                           │ - Terminal Display & Output      │
+                           └────────────────┬─────────────────┘
+                                            │ Passes Loaded Config Variables
+                                            ▼
+                           ┌──────────────────────────────────┐
+                           │   Core Engine (core/engine.py)   │
+                           │ - Workflow Pipeline Orchestrator │
+                           │ - Sub-Module Coordinator         │
+                           └────────────────┬─────────────────┘
+                                            │
+                                            ▼
+                           ┌──────────────────────────────────┐
                            │     Target Resolution Layer      │
                            │        (TargetResolver)          │
                            └────────────────┬─────────────────┘
@@ -59,12 +73,6 @@ Operating as a specialized native binary analysis sub-component of the broader A
                                             │
                                             ▼
                          ┌────────────────────────────────────┐
-                         │         Core ScanEngine            │
-                         │ Iterates 15 Class Analyzers        │
-                         └──────────────────┬─────────────────┘
-                                            │
-                                            ▼
-                         ┌────────────────────────────────────┐
                          │    15 Vulnerability Analyzers      │
                          │ - Pattern Matching (66 Sub-Rules)  │
                          │ - Context Window (20-Line AST)     │
@@ -78,7 +86,7 @@ Operating as a specialized native binary analysis sub-component of the broader A
                          │  Summary -> Targets -> Functions   │
                          │            -> Findings             │
                          └──────────────────┬─────────────────┘
-                                            │
+                                            │ Returns Structured Summary Payload
                                             ▼
                          ┌────────────────────────────────────┐
                          │       CLI Terminal UI Renderer     │
@@ -177,7 +185,7 @@ Provides a terminal output displaying:
 1. ANSI Colorized ASCII Banner with submodule identity note.
 2. **Execution Metadata Table**: Execution Mode (`SINGLE (.so)` or `MULTI (.apk)`), Target File Path, Output Report Path, and Identified Binary Count.
 3. **Progress Indicators**: Step-by-step terminal logs (`[+]`, `[*]`, `[✔]`).
-4. **Post-Scan Summary Table**: Total targets scanned, total findings, severity breakdown (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`), and top detected categories.
+4. **Post-Scan Summary Table**: Clean, high-level summary displaying Total Target Files Scanned, Discovered ABIs, Primary Target ABI, and Total Vulnerabilities Found.
 
 ---
 
@@ -449,6 +457,48 @@ engine_ghidra = ScanEngine(
     decompiler_path="/opt/ghidra/support/analyzeHeadless"
 )
 scanned_targets_ghidra = engine_ghidra.scan("path/to/app.apk")
+
+# Complete Pipeline Execution (engine.execute)
+summary = engine_ghidra.execute(
+    target_path="path/to/app.apk",
+    output_path="./output/report.json",
+    config_file_used="config/cli_config.yaml"
+)
+
+# Returned Payload Schema Structure
+{
+    "success": True,
+    "metadata": {
+        "config_file": "config/cli_config.yaml",
+        "config_content": {
+            "target_path": "path/to/app.apk",
+            "output_json_path": "./output/report.json",
+            "engine": "ghidra",
+            "decompiler_path": "/opt/ghidra/support/analyzeHeadless"
+        },
+        "execution": {
+            "timestamp": "2026-08-10T11:26:00Z",
+            "duration_seconds": 4.12,
+            "active_analyzers": ["buffer_overflow", "weak_crypto", "..."]
+        }
+    },
+    "summary": {
+        "discovered_abis": ["arm64-v8a", "armeabi-v7a", "x86_64"],
+        "primary_abi": "arm64-v8a",
+        "scanned_files_count": 5,
+        "total_vulnerabilities": 12,
+        "by_category": {
+            "Buffer Overflow": 4,
+            "Weak Cryptography": 5
+        },
+        "by_severity": {
+            "critical": 2,
+            "high": 4,
+            "medium": 5,
+            "low": 1
+        }
+    }
+}
 
 # Generate JSON Report File
 report_data = JSONReporter.generate_report(

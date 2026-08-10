@@ -25,6 +25,20 @@
                                             │
                                             ▼
                            ┌──────────────────────────────────┐
+                           │   CLI Interface Layer (cli.py)   │
+                           │  - Config & Argument Reader      │
+                           │  - Terminal Display & Output     │
+                           └────────────────┬─────────────────┘
+                                            │ Passes Config Variables
+                                            ▼
+                           ┌──────────────────────────────────┐
+                           │   Core Engine (core/engine.py)   │
+                           │  - Workflow Orchestrator         │
+                           │  - Sub-Module Coordinator        │
+                           └────────────────┬─────────────────┘
+                                            │
+                                            ▼
+                           ┌──────────────────────────────────┐
                            │     Primary ABI Resolution       │
                            │   Deduplication (75% Token Opt)  │
                            └────────────────┬─────────────────┘
@@ -56,10 +70,19 @@
                            ┌──────────────────────────────────┐
                            │   4-Level JSON Report Output     │
                            │ Summary -> Target -> Func -> Find│
+                           └────────────────┬─────────────────┘
+                                            │ Returns Summary Payload
+                                            ▼
+                           ┌──────────────────────────────────┐
+                           │   Terminal Summary Renderer      │
+                           │ (Execution Metadata & Table)     │
                            └──────────────────────────────────┘
 ```
 
-1. **Target Ingestion & Primary ABI Filtering**: Extracts native binaries from `.apk` or reads `.so` directly. Filters duplicate architecture variants by picking a single Primary ABI target (`arm64-v8a` > `x86_64` > `armeabi-v7a` > `x86`), reducing report size and LLM token overhead by up to 75%.
+1. **Decoupled CLI & Orchestration Layer**:
+   - **`cli.py` (Config Reader & Terminal Display Only)**: Parses configuration settings from `cli_config.yaml` or command line arguments (`-c`, `-t`, `-o`), passes configuration variables to `core/engine.py`, triggers pipeline execution, and formats the returned summary payload into clean terminal progress logs and results tables.
+   - **`core/engine.py` (`ScanEngine`)**: Acts as the central workflow orchestrator, receiving configuration parameters, coordinating target extraction, ABI deduplication, decompiler execution, analyzer dispatch, and report generation via `JSONReporter`.
+2. **Target Ingestion & Primary ABI Filtering**: Extracts native binaries from `.apk` or reads `.so` directly. Filters duplicate architecture variants by picking a single Primary ABI target (`arm64-v8a` > `x86_64` > `armeabi-v7a` > `x86`), reducing report size and LLM token overhead by up to 75%.
 2. **Context & Metadata Extraction**: Computes SHA-256 digests, detects ELF exploit mitigations (Stack Canaries, NX Bit, PIE, RELRO), and extracts static strings with Shannon entropy metrics.
 3. **Decompilation & Dual Parsing**:
    - **Fast Scan (`radare2`)**: Uses `Radare2Parser` (`r2pipe`) for rapid symbol extraction, string tables, and disassembly.
@@ -192,21 +215,12 @@ The CLI provides a modernized visual interface featuring an ASCII art banner, ex
 ======================================================================
                       SCAN SUMMARY RESULTS                            
 ======================================================================
-  Total Target Files Scanned : 2
-  Total Vulnerabilities Found: 8
-----------------------------------------------------------------------
-  SEVERITY BREAKDOWN
-----------------------------------------------------------------------
-   CRITICAL :  2
-   HIGH     :  4
-   MEDIUM   :  0
-   LOW      :  2
-----------------------------------------------------------------------
-  TOP CATEGORIES DETECTED
-----------------------------------------------------------------------
-   JNI Boundary Leak                  : 4
-   Buffer Overflow                    : 2
-   Command Injection                  : 2
+
+  Total Target Files Scanned : 1
+  Discovered ABIs            : arm64-v8a, x86_64, armeabi-v7a, x86
+  Primary Target ABI         : [arm64-v8a]
+  Total Vulnerabilities Found: 14
+
 ======================================================================
 ```
 
@@ -253,6 +267,48 @@ engine_ghidra = ScanEngine(
     decompiler_path="/opt/ghidra/support/analyzeHeadless"
 )
 scanned_targets = engine_ghidra.scan("path/to/app.apk")
+
+# Headless Workflow Execution API (engine.execute)
+result = engine_ghidra.execute(
+    target_path="path/to/app.apk",
+    output_path="./output/report.json",
+    config_file_used="config/cli_config.yaml"
+)
+
+# Returned Payload Structure
+{
+    "success": True,
+    "metadata": {
+        "config_file": "config/cli_config.yaml",
+        "config_content": {
+            "target_path": "path/to/app.apk",
+            "output_json_path": "./output/report.json",
+            "engine": "ghidra",
+            "decompiler_path": "/opt/ghidra/support/analyzeHeadless"
+        },
+        "execution": {
+            "timestamp": "2026-08-10T11:26:00Z",
+            "duration_seconds": 4.12,
+            "active_analyzers": ["buffer_overflow", "weak_crypto", "..."]
+        }
+    },
+    "summary": {
+        "discovered_abis": ["arm64-v8a", "armeabi-v7a", "x86_64"],
+        "primary_abi": "arm64-v8a",
+        "scanned_files_count": 5,
+        "total_vulnerabilities": 12,
+        "by_category": {
+            "Buffer Overflow": 4,
+            "Weak Cryptography": 5
+        },
+        "by_severity": {
+            "critical": 2,
+            "high": 4,
+            "medium": 5,
+            "low": 1
+        }
+    }
+}
 
 # Export structured JSON report artifact with specified engine metadata
 report_dict = JSONReporter.generate_report(
