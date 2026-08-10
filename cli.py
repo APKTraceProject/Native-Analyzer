@@ -71,6 +71,7 @@ def print_execution_metadata(summary: Dict[str, Any]):
 
     target_path = cfg_content.get("target_path", "N/A")
     output_path = cfg_content.get("output_json_path", "N/A")
+    output_engine_path = cfg_content.get("output_engine_path") or cfg_content.get("output_ghidra_path") or "N/A"
     engine_name = (cfg_content.get("engine") or "ghidra").upper()
     decompiler_path = cfg_content.get("decompiler_path") or "Default System Path"
     config_file = metadata.get("config_file", "N/A")
@@ -88,7 +89,8 @@ def print_execution_metadata(summary: Dict[str, Any]):
     print(f"{COLOR_CYAN}{COLOR_BOLD}----------------------------------------------------------------------{COLOR_RESET}")
     print(f"  * Mode:                    {COLOR_BOLD}{mode}{COLOR_RESET}")
     print(f"  * Target File:             {target_path}")
-    print(f"  * Output Path:             {output_path}")
+    print(f"  * Output Report Path:      {output_path}")
+    print(f"  * Output Engine Path:      {output_engine_path}")
     print(f"  * Config File:             {config_file}")
     print(f"  * Decompiler Engine:       {engine_badge}")
     if decompiler_path and decompiler_path != "Default System Path":
@@ -158,6 +160,7 @@ def main():
     parser.add_argument("-c", "--config", default="config/cli_config.yaml", help="Path to CLI config YAML file")
     parser.add_argument("-t", "--target", help="Path to target file (.so or .apk)")
     parser.add_argument("-o", "--output", help="Path to output JSON report file")
+    parser.add_argument("-e", "-g", "--engine-output", "--ghidra-output", dest="engine_output", help="Directory path for storing raw engine project database, artifacts, logs, and outputs (Ghidra or Radare2)")
     args = parser.parse_args()
 
     # Step 1: Read configuration options directly from file and CLI flag overrides
@@ -176,6 +179,11 @@ def main():
             raise FileNotFoundError(f"Target binary '{raw_target}' not found.")
 
         output_path = args.output if args.output else cli_config.get("output_json_path", "./output/report.json")
+        output_engine_path = args.engine_output if args.engine_output else cli_config.get("output_engine_path", cli_config.get("output_ghidra_path"))
+        if output_engine_path:
+            output_engine_path = os.path.abspath(output_engine_path)
+            os.makedirs(output_engine_path, exist_ok=True)
+
         engine_type = cli_config.get("engine", "ghidra")
         decompiler_path = cli_config.get("decompiler_path")
 
@@ -184,7 +192,8 @@ def main():
 
         engine = ScanEngine(
             decompiler_path=decompiler_path,
-            engine=engine_type
+            engine=engine_type,
+            output_engine_path=output_engine_path
         )
 
         # Step 3: Trigger core engine execution process

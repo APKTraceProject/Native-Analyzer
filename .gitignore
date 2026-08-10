@@ -3,3 +3,4 @@
 *.json
 cli_config.yaml
 __pycache__
+output

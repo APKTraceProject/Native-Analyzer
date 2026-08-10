@@ -154,6 +154,7 @@ Edit `config/cli_config.yaml` to configure target path, output path, selected en
 ```yaml
 target_path: "./tests/app.apk"
 output_json_path: "./output/report.json"
+output_engine_path: "./output/engine_artifacts" # Directory path for raw engine (Ghidra/Radare2) project database, logs, and outputs
 engine: "ghidra" # Analysis engine choice: "ghidra" or "radare2"
 decompiler_path: "C:\\Ghidra\\support\\analyzeHeadless.bat" # Path to Ghidra analyzeHeadless executable or radare2 binary
 ```
@@ -161,6 +162,7 @@ decompiler_path: "C:\\Ghidra\\support\\analyzeHeadless.bat" # Path to Ghidra ana
 #### Configuration Parameters
 - **`target_path`**: Accepts either a single dynamic native library path (`.so` for Single Mode) or a full Android application package (`.apk` for Multi Mode).
 - **`output_json_path`**: File path destination where the final 4-level structured JSON report will be exported.
+- **`output_engine_path`**: Directory path where raw output files, artifacts, execution logs, and project databases generated directly by whichever engine is active (Ghidra or Radare2) will be stored and preserved.
 - **`engine`**: Decompiler engine backend (`"ghidra"` or `"radare2"`, defaults to `"ghidra"`).
 - **`decompiler_path`**: Optional path to Ghidra's `analyzeHeadless` script or `radare2` binary. If set to `null` or omitted, the scanner automatically falls back to its zero-dependency cross-platform heuristic parser.
 
@@ -170,11 +172,11 @@ decompiler_path: "C:\\Ghidra\\support\\analyzeHeadless.bat" # Path to Ghidra ana
 Run automated security analysis directly from the command line:
 
 ```bash
-# Fast Scan (Radare2 Engine): Fast disassembly & symbol extraction
-python cli.py -t ./tests/app.apk -o ./output/report.json -c config/cli_config.yaml
+# Fast Scan (Radare2 Engine): Fast disassembly & symbol extraction with persistent raw engine artifacts
+python cli.py -t ./tests/app.apk -o ./output/report.json -e ./output/engine_artifacts -c config/cli_config.yaml
 
-# Deep Scan (Ghidra Engine): In-depth pseudo-C AST decompilation
-python cli.py -t ./tests/app.apk -o ./output/report.json
+# Deep Scan (Ghidra Engine): In-depth pseudo-C AST decompilation with persistent raw engine artifacts
+python cli.py -t ./tests/app.apk -o ./output/report.json -e ./output/engine_artifacts
 
 # Standalone Single Mode: Run analysis directly on a single .so dynamic library
 python cli.py -t ./tests/libnative.so -o ./output/report.json

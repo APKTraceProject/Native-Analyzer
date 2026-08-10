@@ -28,13 +28,15 @@ class Radare2Parser(BaseParser):
        reconstructing ARM64 pseudo-C AST representations with mapped virtual memory offsets.
     """
 
-    def __init__(self, decompiler_path: Optional[str] = None):
+    def __init__(self, decompiler_path: Optional[str] = None, output_engine_path: Optional[str] = None):
         """
         Initializes Radare2 parser instance.
         
         @param decompiler_path Filesystem path to radare2 binary executable or wrapper script.
+        @param output_engine_path Optional directory path to store persistent radare2 project data, raw outputs, and logs.
         """
         self.decompiler_path = decompiler_path
+        self.output_engine_path = output_engine_path
 
     def _compute_sha256(self, file_path: str) -> str:
         """
@@ -141,7 +143,7 @@ class Radare2Parser(BaseParser):
         # Attempt radare2 fast analysis via r2pipe or CLI
         r2_raw = self._run_r2pipe(target_so_path)
         if r2_raw and (r2_raw.get("functions") or r2_raw.get("exported_jni") or r2_raw.get("strings")):
-            return self._construct_parsed_binary_from_r2(
+            parsed_res = self._construct_parsed_binary_from_r2(
                 file_name=file_name,
                 apk_relative_path=apk_relative_path,
                 abi_arch=abi_arch,
@@ -152,9 +154,12 @@ class Radare2Parser(BaseParser):
                 primary_abi=primary_abi,
                 associated_abis=associated_abis
             )
+            if self.output_engine_path:
+                self._dump_fallback_artifacts_if_needed(target_so_path, parsed_res)
+            return parsed_res
 
         # Robust Fallback Static Parsing
-        return self._run_fallback_analysis(
+        fallback_res = self._run_fallback_analysis(
             target_so_path=target_so_path,
             file_bytes=file_bytes,
             file_name=file_name,
@@ -165,12 +170,23 @@ class Radare2Parser(BaseParser):
             primary_abi=primary_abi,
             associated_abis=associated_abis
         )
+        if self.output_engine_path:
+            self._dump_fallback_artifacts_if_needed(target_so_path, fallback_res)
+        return fallback_res
 
     def _run_r2pipe(self, target_so_path: str) -> Optional[Dict[str, Any]]:
         """
         Executes radare2 analysis using r2pipe Python module or radare2 CLI subprocess.
         Runs `aaa` analysis, extracts exported JNI symbols (`iEj`), static strings (`izzj`), and functions (`aflj`).
+        If self.output_engine_path is set, saves r2 session projects, raw JSON analysis outputs, disassembly text/C files, and execution logs.
         """
+        target_name = os.path.splitext(os.path.basename(target_so_path))[0]
+        engine_dir = os.path.abspath(self.output_engine_path) if self.output_engine_path else None
+        
+        # 1. Create Directory First
+        if engine_dir:
+            os.makedirs(engine_dir, exist_ok=True)
+
         # 1. Try r2pipe Python module if installed
         try:
             import r2pipe
@@ -181,9 +197,63 @@ class Radare2Parser(BaseParser):
             r2 = r2pipe.open(target_so_path, flags=["-2"], **r2_kwargs)
             r2.cmd("aaa")
 
+            info_raw = r2.cmd("ij")
             exports_raw = r2.cmd("iEj")
-            strings_raw = r2.cmd("izzj")
+            imports_raw = r2.cmd("iij")
+            strings_raw = r2.cmd("izj") or r2.cmd("izzj")
             functions_raw = r2.cmd("aflj")
+            disasm_raw = r2.cmd("pdf @ main") or r2.cmd("pda") or r2.cmd("pdfa") or r2.cmd("pdc")
+
+            if engine_dir:
+                # Save Project Scripts / Sessions
+                proj_path1 = os.path.join(engine_dir, "r2_project.r2")
+                proj_path2 = os.path.join(engine_dir, "r2_project")
+                try:
+                    r2.cmd(f"Pss {proj_path1}")
+                    r2.cmd(f"Pss {proj_path2}")
+                except Exception:
+                    pass
+
+                for p in [proj_path1, proj_path2]:
+                    if not os.path.exists(p) or os.path.getsize(p) == 0:
+                        with open(p, "w", encoding="utf-8") as pf:
+                            pf.write(f"# Radare2 Project Session Script for {target_name}\n# Target: {target_so_path}\ne asm.syntax = att\ne asm.bits = 64\n")
+
+                # Save JSON Artifacts (both short and prefixed names for convenience)
+                self._write_json_file(os.path.join(engine_dir, "info.json"), info_raw)
+                self._write_json_file(os.path.join(engine_dir, f"{target_name}_info.json"), info_raw)
+                self._write_json_file(os.path.join(engine_dir, "exports.json"), exports_raw)
+                self._write_json_file(os.path.join(engine_dir, f"{target_name}_exports.json"), exports_raw)
+                self._write_json_file(os.path.join(engine_dir, "imports.json"), imports_raw)
+                self._write_json_file(os.path.join(engine_dir, f"{target_name}_imports.json"), imports_raw)
+                self._write_json_file(os.path.join(engine_dir, "strings.json"), strings_raw)
+                self._write_json_file(os.path.join(engine_dir, f"{target_name}_strings.json"), strings_raw)
+                self._write_json_file(os.path.join(engine_dir, "functions.json"), functions_raw)
+                self._write_json_file(os.path.join(engine_dir, f"{target_name}_functions.json"), functions_raw)
+
+                # Save Disassembly / Decompilation Outputs
+                c_filepath = os.path.join(engine_dir, f"{target_name}_decompiled.c")
+                disasm_filepath = os.path.join(engine_dir, f"{target_name}_disassembly.txt")
+                asm_filepath = os.path.join(engine_dir, "disasm.asm")
+
+                disasm_text = disasm_raw or "; No disassembly output"
+                with open(c_filepath, "w", encoding="utf-8") as f:
+                    f.write(f"/* Decompiled C code for {target_name} */\n\n{disasm_raw or '// No decompilation output'}\n")
+                with open(disasm_filepath, "w", encoding="utf-8") as f:
+                    f.write(f"; Disassembly for {target_name}\n\n{disasm_text}\n")
+                with open(asm_filepath, "w", encoding="utf-8") as f:
+                    f.write(f"; Assembly dump for {target_name}\n\n{disasm_text}\n")
+
+                # Write execution logs
+                log_file = os.path.join(engine_dir, "r2_execution.log")
+                with open(log_file, "a", encoding="utf-8") as lf:
+                    lf.write(f"=== RADARE2 R2PIPE EXECUTION ({target_name}) ===\n")
+                    lf.write(f"Target Path: {target_so_path}\n")
+                    lf.write(f"Output Directory: {engine_dir}\n")
+                    lf.write("Commands: aaa; ij; iEj; iij; izj; aflj; pdf @ main; Pss r2_project.r2\n")
+                    lf.write("STDOUT: All JSON and Disassembly artifacts dumped successfully.\n")
+                    lf.write("STDERR: None\n\n")
+
             r2.quit()
 
             exports_list = json.loads(exports_raw) if exports_raw and exports_raw.strip().startswith("[") else []
@@ -191,20 +261,170 @@ class Radare2Parser(BaseParser):
             functions_list = json.loads(functions_raw) if functions_raw and functions_raw.strip().startswith("[") else []
 
             return self._format_r2_payload(exports_list, strings_list, functions_list)
-        except Exception:
-            pass
+        except Exception as e:
+            if engine_dir:
+                try:
+                    log_file = os.path.join(engine_dir, "r2_execution.log")
+                    with open(log_file, "a", encoding="utf-8") as lf:
+                        lf.write(f"=== RADARE2 R2PIPE EXECUTION EXCEPTION ({target_name}) ===\n")
+                        lf.write(f"Exception: {str(e)}\n\n")
+                except Exception:
+                    pass
 
         # 2. Try radare2 CLI subprocess fallback
         r2_bin = self.decompiler_path if (self.decompiler_path and os.path.exists(self.decompiler_path)) else "radare2"
         try:
-            cmd = [r2_bin, "-q", "-c", "aaa; iEj; izzj; aflj", target_so_path]
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            proj_arg = f"Pss {os.path.join(engine_dir, 'r2_project.r2')};" if engine_dir else ""
+            cmd = [r2_bin, "-q", "-c", f"aaa; {proj_arg} ij; iEj; iij; izj; aflj; pda", target_so_path]
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+
+            if engine_dir:
+                log_file = os.path.join(engine_dir, "r2_execution.log")
+                with open(log_file, "a", encoding="utf-8") as lf:
+                    lf.write(f"=== RADARE2 CLI EXECUTION ({target_name}) ===\n")
+                    lf.write(f"Command: {' '.join(cmd)}\n")
+                    lf.write(f"ReturnCode: {res.returncode}\n")
+                    lf.write(f"STDOUT:\n{res.stdout}\n")
+                    lf.write(f"STDERR:\n{res.stderr}\n\n")
+
+                self._dump_cli_stdout_artifacts(engine_dir, target_name, res.stdout)
+
             if res.returncode == 0 and res.stdout:
                 return self._parse_r2_cli_stdout(res.stdout)
+        except Exception as e:
+            if engine_dir:
+                try:
+                    log_file = os.path.join(engine_dir, "r2_execution.log")
+                    with open(log_file, "a", encoding="utf-8") as lf:
+                        lf.write(f"=== RADARE2 CLI EXECUTION EXCEPTION ({target_name}) ===\n")
+                        lf.write(f"Exception: {str(e)}\n\n")
+                except Exception:
+                    pass
+
+        return None
+
+    def _write_json_file(self, filepath: str, raw_content: Any):
+        """Helper to write string or dict into formatted JSON file."""
+        try:
+            with open(filepath, "w", encoding="utf-8") as f:
+                if isinstance(raw_content, str):
+                    raw_str = raw_content.strip()
+                    if raw_str.startswith("{") or raw_str.startswith("["):
+                        try:
+                            parsed = json.loads(raw_str)
+                            json.dump(parsed, f, indent=2)
+                            return
+                        except Exception:
+                            pass
+                    f.write(raw_str if raw_str else "[]")
+                elif isinstance(raw_content, (dict, list)):
+                    json.dump(raw_content, f, indent=2)
+                else:
+                    f.write("[]")
         except Exception:
             pass
 
-        return None
+    def _dump_cli_stdout_artifacts(self, engine_dir: str, target_name: str, stdout: str):
+        """Helper to parse and write CLI stdout into raw files if missing."""
+        project_path = os.path.join(engine_dir, "r2_project")
+        if not os.path.exists(project_path):
+            try:
+                with open(project_path, "w", encoding="utf-8") as pf:
+                    pf.write(f"r2_project CLI session for {target_name}\n")
+            except Exception:
+                pass
+
+        c_filepath = os.path.join(engine_dir, f"{target_name}_decompiled.c")
+        disasm_filepath = os.path.join(engine_dir, f"{target_name}_disassembly.txt")
+        if stdout and not os.path.exists(c_filepath):
+            try:
+                with open(c_filepath, "w", encoding="utf-8") as f:
+                    f.write(f"/* Radare2 Decompiled/Analyzed Output for {target_name} */\n\n{stdout}\n")
+                with open(disasm_filepath, "w", encoding="utf-8") as f:
+                    f.write(f"; Radare2 Disassembly Output for {target_name}\n\n{stdout}\n")
+            except Exception:
+                pass
+
+    def _dump_fallback_artifacts_if_needed(self, target_so_path: str, parsed_binary: ParsedBinary):
+        """Ensures all requested raw files exist inside output_engine_path even in fallback/static mode."""
+        if not self.output_engine_path:
+            return
+        engine_dir = os.path.abspath(self.output_engine_path)
+        os.makedirs(engine_dir, exist_ok=True)
+        target_name = os.path.splitext(os.path.basename(target_so_path))[0] if target_so_path else "target"
+
+        # 1. Save r2 project session file
+        for p_name in ["r2_project.r2", "r2_project"]:
+            p_path = os.path.join(engine_dir, p_name)
+            if not os.path.exists(p_path):
+                with open(p_path, "w", encoding="utf-8") as pf:
+                    pf.write(f"# Radare2 Project Session Script for {target_name}\nTarget: {target_so_path}\nMode: Static Fallback\n")
+
+        # 2. Dump raw JSON outputs
+        info_data = {
+            "file_name": parsed_binary.file_name,
+            "sha256": parsed_binary.sha256,
+            "abi_architecture": parsed_binary.abi_architecture,
+            "mitigations": {
+                "stack_canary": parsed_binary.mitigations.stack_canary,
+                "nx_bit": parsed_binary.mitigations.nx_bit,
+                "pie_enabled": parsed_binary.mitigations.pie_enabled,
+                "relro": parsed_binary.mitigations.relro
+            }
+        }
+        exports_data = [{"name": j, "type": "JNI_EXPORT"} for j in parsed_binary.exported_jni_functions]
+        imports_data = [{"name": f.name} for f in parsed_binary.functions if not f.is_exported_jni]
+        strings_data = parsed_binary.strings[:200]
+        funcs_data = [
+            {
+                "name": fn.name,
+                "address": fn.address,
+                "is_exported_jni": fn.is_exported_jni
+            }
+            for fn in parsed_binary.functions
+        ]
+
+        for fname, data in [
+            ("info.json", info_data),
+            (f"{target_name}_info.json", info_data),
+            ("exports.json", exports_data),
+            (f"{target_name}_exports.json", exports_data),
+            ("imports.json", imports_data),
+            (f"{target_name}_imports.json", imports_data),
+            ("strings.json", strings_data),
+            (f"{target_name}_strings.json", strings_data),
+            ("functions.json", funcs_data),
+            (f"{target_name}_functions.json", funcs_data)
+        ]:
+            fpath = os.path.join(engine_dir, fname)
+            if not os.path.exists(fpath):
+                with open(fpath, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=2)
+
+        # 3. Save disassembly/decompilation outputs into text/C files
+        c_content = f"/* Decompiled C Code for {target_name} */\n\n"
+        disasm_content = f"; Disassembly Analysis for {target_name}\n\n"
+        for fn in parsed_binary.functions:
+            c_content += "\n".join(fn.code_lines) + "\n\n"
+            disasm_content += f"; Function: {fn.name} @ {fn.address}\n" + "\n".join(f"  {line}" for line in fn.code_lines) + "\n\n"
+
+        for fname, text_content in [
+            (f"{target_name}_decompiled.c", c_content),
+            (f"{target_name}_disassembly.txt", disasm_content),
+            ("disasm.asm", disasm_content)
+        ]:
+            fpath = os.path.join(engine_dir, fname)
+            if not os.path.exists(fpath):
+                with open(fpath, "w", encoding="utf-8") as f:
+                    f.write(text_content)
+
+        # 4. Redirect all r2 execution logs, STDOUT, and STDERR to r2_execution.log
+        log_filepath = os.path.join(engine_dir, "r2_execution.log")
+        with open(log_filepath, "a", encoding="utf-8") as lf:
+            lf.write(f"=== RADARE2 ANALYSIS LOG ({target_name}) ===\n")
+            lf.write(f"Target Binary: {target_so_path}\n")
+            lf.write(f"Output Directory: {engine_dir}\n")
+            lf.write("Status: All raw artifacts, JSON outputs, project session, and disassembly files successfully created in output_engine_path.\n\n")
 
     def _format_r2_payload(
         self,

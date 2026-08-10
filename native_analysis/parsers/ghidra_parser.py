@@ -26,13 +26,15 @@ class GhidraParser(BaseParser):
        reconstructing ARM64 pseudo-C AST representations with mapped virtual memory offsets (0x2b00 + idx*0x40).
     """
 
-    def __init__(self, decompiler_path: Optional[str] = None):
+    def __init__(self, decompiler_path: Optional[str] = None, output_engine_path: Optional[str] = None):
         """
         Initializes Ghidra parser instance.
         
         @param decompiler_path Filesystem path to Ghidra analyzeHeadless executable/bat.
+        @param output_engine_path Optional directory path to store persistent Ghidra project data, artifacts, and logs.
         """
         self.decompiler_path = decompiler_path
+        self.output_engine_path = output_engine_path
 
     def _compute_sha256(self, file_path: str) -> str:
         """
@@ -160,17 +162,20 @@ class GhidraParser(BaseParser):
         """
         Generates Jython 2.7 compatible script and runs analyzeHeadless.bat/sh.
         Uses Jython-compatible syntax without Python 3 f-strings or type hints.
+        If self.output_engine_path is set, preserves project files, logs, and outputs in that directory.
         """
-        with tempfile.TemporaryDirectory() as temp_dir:
-            project_location = os.path.join(temp_dir, "ghidra_proj")
+        target_name = os.path.splitext(os.path.basename(target_so_path))[0]
+        if self.output_engine_path:
+            project_location = os.path.abspath(self.output_engine_path)
             os.makedirs(project_location, exist_ok=True)
-            output_json = os.path.join(temp_dir, "decompiled_output.json")
-            script_path = os.path.join(temp_dir, "ExportDecompiled.py")
+            output_json = os.path.join(project_location, f"{target_name}_decompiled.json")
+            script_path = os.path.join(project_location, "ExportDecompiled.py")
+            log_file = os.path.join(project_location, "ghidra_analysis.log")
+            exec_log_file = os.path.join(project_location, "ghidra_execution.log")
 
             # Escape paths for Windows Jython 2.7 execution
             output_json_escaped = output_json.replace("\\", "\\\\")
 
-            # Jython 2.7 Script Template (Strict Python 2 syntax)
             jython_script = '''# Ghidra Headless Decompilation Export Script (Jython 2.7)
 import json
 from ghidra.app.decompiler import DecompInterface
@@ -218,21 +223,21 @@ def run_export():
 
 run_export()
 '''
-            with open(script_path, "w") as f:
+            with open(script_path, "w", encoding="utf-8") as f:
                 f.write(jython_script)
 
-            head_dir = os.path.dirname(self.decompiler_path)
             cmd = [
                 self.decompiler_path,
                 project_location,
                 "APKTraceProject",
                 "-import", target_so_path,
+                "-overwrite",
                 "-postScript", script_path,
-                "-deleteProject"
+                "-log", log_file
             ]
 
             use_shell = True if os.name == 'nt' else False
-            subprocess.run(
+            proc = subprocess.run(
                 cmd,
                 shell=use_shell,
                 stdout=subprocess.PIPE,
@@ -241,11 +246,105 @@ run_export()
                 check=False
             )
 
+            try:
+                with open(exec_log_file, "wb") as lf:
+                    lf.write(b"=== GHIDRA HEADLESS STDOUT ===\n")
+                    lf.write(proc.stdout or b"")
+                    lf.write(b"\n=== GHIDRA HEADLESS STDERR ===\n")
+                    lf.write(proc.stderr or b"")
+            except Exception:
+                pass
+
             if os.path.exists(output_json):
-                with open(output_json, "r") as f:
+                with open(output_json, "r", encoding="utf-8") as f:
                     return json.load(f)
 
-        return None
+            return None
+        else:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                project_location = os.path.join(temp_dir, "ghidra_proj")
+                os.makedirs(project_location, exist_ok=True)
+                output_json = os.path.join(temp_dir, "decompiled_output.json")
+                script_path = os.path.join(temp_dir, "ExportDecompiled.py")
+
+                # Escape paths for Windows Jython 2.7 execution
+                output_json_escaped = output_json.replace("\\", "\\\\")
+
+                # Jython 2.7 Script Template (Strict Python 2 syntax)
+                jython_script = '''# Ghidra Headless Decompilation Export Script (Jython 2.7)
+import json
+from ghidra.app.decompiler import DecompInterface
+from ghidra.util.task import ConsoleTaskMonitor
+
+def run_export():
+    decomp_interface = DecompInterface()
+    decomp_interface.openProgram(currentProgram)
+    monitor = ConsoleTaskMonitor()
+
+    functions_list = []
+    strings_list = []
+
+    # Iterate over functions using Ghidra Jython API
+    funcs = currentProgram.getFunctionManager().getFunctions(True)
+    while funcs.hasNext():
+        func = funcs.next()
+        func_name = func.getName()
+        entry_addr = "0x" + func.getEntryPoint().toString()
+        
+        # Decompile function
+        results = decomp_interface.decompileFunction(func, 30, monitor)
+        code_lines = []
+        if results and results.getDecompiledFunction():
+            c_code = results.getDecompiledFunction().getC()
+            if c_code:
+                code_lines = c_code.split("\\n")
+        
+        is_jni = func_name.startswith("Java_")
+        functions_list.append({
+            "name": func_name,
+            "address": entry_addr,
+            "lines": code_lines,
+            "is_exported_jni": is_jni
+        })
+
+    # Export parsed payload
+    payload = {
+        "functions": functions_list,
+        "strings": strings_list
+    }
+
+    with open("''' + output_json_escaped + '''", "w") as f:
+        json.dump(payload, f)
+
+run_export()
+'''
+                with open(script_path, "w") as f:
+                    f.write(jython_script)
+
+                cmd = [
+                    self.decompiler_path,
+                    project_location,
+                    "APKTraceProject",
+                    "-import", target_so_path,
+                    "-postScript", script_path,
+                    "-deleteProject"
+                ]
+
+                use_shell = True if os.name == 'nt' else False
+                subprocess.run(
+                    cmd,
+                    shell=use_shell,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=120,
+                    check=False
+                )
+
+                if os.path.exists(output_json):
+                    with open(output_json, "r") as f:
+                        return json.load(f)
+
+            return None
 
     def _deduplicate_functions(
         self,

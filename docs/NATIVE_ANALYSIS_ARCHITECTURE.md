@@ -140,10 +140,12 @@ The engine features a modular dual-parser architecture located in `native_analys
 1. **Ghidra Parser (`GhidraParser` in `ghidra_parser.py`)**:
    - **Deep Scan Mode (`engine: "ghidra"`)**: Invokes Ghidra's `analyzeHeadless` script to decompile native ELF binaries into pseudo-C function blocks and mapped memory addresses starting at virtual offset `0x2b00`.
    - Reconstructs complete C function ASTs, parameter signatures, and symbol address tables.
+   - When `output_engine_path` is configured, preserves raw Ghidra project files (`.gpr` / `.rep`), Jython export scripts (`ExportDecompiled.py`), execution logs (`ghidra_analysis.log`, `ghidra_execution.log`), and raw decompiled JSON payloads (`<target_name>_decompiled.json`).
 
 2. **Radare2 Parser (`Radare2Parser` in `radare2_parser.py`)**:
    - **Fast Scan Mode (`engine: "radare2"`)**: Uses `r2pipe` or radare2 CLI execution to run fast binary analysis (`aaa`), extract exported JNI symbols (`iEj`), static memory strings (`izzj`), and analyzed functions (`aflj`).
    - Ideal for CI/CD environments and lightweight disassembly passes.
+   - When `output_engine_path` is configured, dumps r2 project session files (`r2_project`), execution logs (`r2_execution.log`), raw JSON analysis payloads (`<target_name>_info.json`, `<target_name>_exports.json`, `<target_name>_imports.json`, `<target_name>_strings.json`, `<target_name>_functions.json`), and disassembly/decompilation outputs (`<target_name>_decompiled.c`, `<target_name>_disassembly.txt`).
 
 3. **Zero-Dependency Fallback Engine**:
    - If Ghidra or radare2 are not available or not configured, the engine falls back to a built-in Python heuristic parser that extracts string tables, exported symbols, and reconstructs pseudo-C AST function bodies directly.
@@ -155,7 +157,7 @@ The engine features a modular dual-parser architecture located in `native_analys
 ---
 
 ### Stage 4: AST Pattern Matching & Taint Flow Tracking (`BaseAnalyzer` + 15 Analyzers)
-- **Signature Dispatch**: The scanner dispatches function scopes across 15 category analyzers executing 66 pattern signatures defined in `config/rules.yaml`.
+- **Signature Dispatch**: The scanner dispatches function scopes across 15 category analyzers executing 66 pattern signatures statically loaded internally from `config/rules.yaml`.
 - **20-Line Memory Context Window**: For every matched vulnerability pattern, `BaseAnalyzer._scan_function_with_patterns` extracts a 20-line code window (`trigger_index - 10` to `trigger_index + 10`).
 - **Memory Offset Annotations**: Annotates code lines with virtual memory offset tags:
   `/* 0x2b40 | line 34 */ statement; // [TRIGGER]`
@@ -204,12 +206,14 @@ cp config/cli_config.example.yaml config/cli_config.yaml
 ```yaml
 target_path: "./tests/app.apk"           # Accepts .so (Single Mode) or .apk (Multi Mode)
 output_json_path: "./output/report.json" # Output report path
+output_engine_path: "./output/engine_artifacts" # Raw output directory for active engine artifacts (Ghidra or Radare2)
 engine: "ghidra"                         # Decompiler engine choice: "ghidra" or "radare2"
 decompiler_path: null                    # Optional path to Ghidra analyzeHeadless executable or radare2 binary
 ```
 
 - `target_path` (*string*, required): Path to the target binary (`.so`) or application archive (`.apk`).
 - `output_json_path` (*string*, required): Destination path for the generated JSON report.
+- `output_engine_path` (*string*, optional): Directory path where raw output files, artifacts, execution logs, and project databases generated directly by whichever engine is active (Ghidra or Radare2) will be stored and preserved.
 - `engine` (*string*, optional): Decompiler engine backend (`"ghidra"` or `"radare2"`, defaults to `"ghidra"`).
 - `decompiler_path` (*string*, optional): Path to Ghidra's `analyzeHeadless` script or `radare2` binary. If `null` or omitted, the scanner uses its zero-dependency fallback parser.
 

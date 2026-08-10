@@ -69,24 +69,35 @@ class ScanEngine:
     def __init__(
         self,
         decompiler_path: Optional[str] = None,
-        engine: str = "ghidra"
+        engine: str = "ghidra",
+        output_engine_path: Optional[str] = None,
+        output_ghidra_path: Optional[str] = None
     ):
         """
         Initializes engine, statically loads rules.yaml signatures internally, and configures binary decompiler/parser.
         
         @param decompiler_path Optional path to decompiler executable (Ghidra analyzeHeadless or radare2 binary).
         @param engine Decompiler engine choice ("ghidra" or "radare2").
+        @param output_engine_path Optional directory path to store persistent engine project data, artifacts, and logs.
+        @param output_ghidra_path Legacy alias for output_engine_path.
         """
         self.rules = ConfigLoader.load_rules()
         self.rules_by_id: Dict[str, Rule] = {r.id: r for r in self.rules}
         
         self.decompiler_path = decompiler_path
+        self.output_engine_path = output_engine_path or output_ghidra_path
         self.engine_name = engine.lower()
 
         if self.engine_name == "radare2":
-            self.parser = Radare2Parser(decompiler_path=decompiler_path)
+            self.parser = Radare2Parser(
+                decompiler_path=decompiler_path,
+                output_engine_path=self.output_engine_path
+            )
         else:
-            self.parser = GhidraParser(decompiler_path=decompiler_path)
+            self.parser = GhidraParser(
+                decompiler_path=decompiler_path,
+                output_engine_path=self.output_engine_path
+            )
 
     def build_rule_category_map(self) -> Dict[str, str]:
         """
@@ -285,6 +296,7 @@ class ScanEngine:
                 "config_content": {
                     "target_path": resolved_target_path,
                     "output_json_path": output_path,
+                    "output_engine_path": self.output_engine_path,
                     "engine": self.engine_name,
                     "decompiler_path": self.decompiler_path
                 },
@@ -324,6 +336,7 @@ class ScanEngine:
                 "config_content": {
                     "target_path": target_path,
                     "output_json_path": output_path,
+                    "output_engine_path": self.output_engine_path,
                     "engine": self.engine_name,
                     "decompiler_path": self.decompiler_path
                 },
