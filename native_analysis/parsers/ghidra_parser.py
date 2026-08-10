@@ -26,15 +26,15 @@ class GhidraParser(BaseParser):
        reconstructing ARM64 pseudo-C AST representations with mapped virtual memory offsets (0x2b00 + idx*0x40).
     """
 
-    def __init__(self, decompiler_path: Optional[str] = None, output_engine_path: Optional[str] = None):
+    def __init__(self, decompiler_path: Optional[str] = None, output_decompiler_path: Optional[str] = None):
         """
         Initializes Ghidra parser instance.
         
         @param decompiler_path Filesystem path to Ghidra analyzeHeadless executable/bat.
-        @param output_engine_path Optional directory path to store persistent Ghidra project data, artifacts, and logs.
+        @param output_decompiler_path Optional directory path to store persistent Ghidra project data, artifacts, and logs.
         """
         self.decompiler_path = decompiler_path
-        self.output_engine_path = output_engine_path
+        self.output_decompiler_path = output_decompiler_path
 
     def _compute_sha256(self, file_path: str) -> str:
         """
@@ -162,11 +162,11 @@ class GhidraParser(BaseParser):
         """
         Generates Jython 2.7 compatible script and runs analyzeHeadless.bat/sh.
         Uses Jython-compatible syntax without Python 3 f-strings or type hints.
-        If self.output_engine_path is set, preserves project files, logs, and outputs in that directory.
+        If self.output_decompiler_path is set, preserves project files, logs, and outputs in that directory.
         """
         target_name = os.path.splitext(os.path.basename(target_so_path))[0]
-        if self.output_engine_path:
-            project_location = os.path.abspath(self.output_engine_path)
+        if self.output_decompiler_path:
+            project_location = os.path.abspath(self.output_decompiler_path)
             os.makedirs(project_location, exist_ok=True)
             output_json = os.path.join(project_location, f"{target_name}_decompiled.json")
             script_path = os.path.join(project_location, "ExportDecompiled.py")

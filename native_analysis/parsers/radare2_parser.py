@@ -28,15 +28,15 @@ class Radare2Parser(BaseParser):
        reconstructing ARM64 pseudo-C AST representations with mapped virtual memory offsets.
     """
 
-    def __init__(self, decompiler_path: Optional[str] = None, output_engine_path: Optional[str] = None):
+    def __init__(self, decompiler_path: Optional[str] = None, output_decompiler_path: Optional[str] = None):
         """
         Initializes Radare2 parser instance.
         
         @param decompiler_path Filesystem path to radare2 binary executable or wrapper script.
-        @param output_engine_path Optional directory path to store persistent radare2 project data, raw outputs, and logs.
+        @param output_decompiler_path Optional directory path to store persistent radare2 project data, raw outputs, and logs.
         """
         self.decompiler_path = decompiler_path
-        self.output_engine_path = output_engine_path
+        self.output_decompiler_path = output_decompiler_path
 
     def _compute_sha256(self, file_path: str) -> str:
         """
@@ -154,7 +154,7 @@ class Radare2Parser(BaseParser):
                 primary_abi=primary_abi,
                 associated_abis=associated_abis
             )
-            if self.output_engine_path:
+            if self.output_decompiler_path:
                 self._dump_fallback_artifacts_if_needed(target_so_path, parsed_res)
             return parsed_res
 
@@ -170,7 +170,7 @@ class Radare2Parser(BaseParser):
             primary_abi=primary_abi,
             associated_abis=associated_abis
         )
-        if self.output_engine_path:
+        if self.output_decompiler_path:
             self._dump_fallback_artifacts_if_needed(target_so_path, fallback_res)
         return fallback_res
 
@@ -178,10 +178,10 @@ class Radare2Parser(BaseParser):
         """
         Executes radare2 analysis using r2pipe Python module or radare2 CLI subprocess.
         Runs `aaa` analysis, extracts exported JNI symbols (`iEj`), static strings (`izzj`), and functions (`aflj`).
-        If self.output_engine_path is set, saves r2 session projects, raw JSON analysis outputs, disassembly text/C files, and execution logs.
+        If self.output_decompiler_path is set, saves r2 session projects, raw JSON analysis outputs, disassembly text/C files, and execution logs.
         """
         target_name = os.path.splitext(os.path.basename(target_so_path))[0]
-        engine_dir = os.path.abspath(self.output_engine_path) if self.output_engine_path else None
+        engine_dir = os.path.abspath(self.output_decompiler_path) if self.output_decompiler_path else None
         
         # 1. Create Directory First
         if engine_dir:
@@ -346,10 +346,10 @@ class Radare2Parser(BaseParser):
                 pass
 
     def _dump_fallback_artifacts_if_needed(self, target_so_path: str, parsed_binary: ParsedBinary):
-        """Ensures all requested raw files exist inside output_engine_path even in fallback/static mode."""
-        if not self.output_engine_path:
+        """Ensures all requested raw files exist inside output_decompiler_path even in fallback/static mode."""
+        if not self.output_decompiler_path:
             return
-        engine_dir = os.path.abspath(self.output_engine_path)
+        engine_dir = os.path.abspath(self.output_decompiler_path)
         os.makedirs(engine_dir, exist_ok=True)
         target_name = os.path.splitext(os.path.basename(target_so_path))[0] if target_so_path else "target"
 
@@ -424,7 +424,7 @@ class Radare2Parser(BaseParser):
             lf.write(f"=== RADARE2 ANALYSIS LOG ({target_name}) ===\n")
             lf.write(f"Target Binary: {target_so_path}\n")
             lf.write(f"Output Directory: {engine_dir}\n")
-            lf.write("Status: All raw artifacts, JSON outputs, project session, and disassembly files successfully created in output_engine_path.\n\n")
+            lf.write("Status: All raw artifacts, JSON outputs, project session, and disassembly files successfully created in output_decompiler_path.\n\n")
 
     def _format_r2_payload(
         self,

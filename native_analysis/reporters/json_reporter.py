@@ -82,14 +82,14 @@ class JSONReporter:
     def generate_report(
         scanned_targets: List[Tuple[ParsedBinary, List[Finding]]],
         output_file_path: Optional[str] = None,
-        analysis_engine: str = "ghidra"
+        decompiler: str = "ghidra"
     ) -> Dict[str, Any]:
         """
         Builds complete JSON report dictionary and writes serialized JSON artifact to disk.
         
         @param scanned_targets List of tuples pairing ParsedBinary AST objects with list of Finding findings.
         @param output_file_path Local filesystem destination path for report.json output.
-        @param analysis_engine Selected analysis engine string (e.g., "ghidra" or "radare2").
+        @param decompiler Selected decompiler string (e.g., "ghidra" or "radare2").
         @return Dict[str, Any] Complete structured report dictionary.
         """
         total_targets = len(scanned_targets)
@@ -243,7 +243,8 @@ class JSONReporter:
 
         report_payload = {
             "summary": {
-                "analysis_engine": analysis_engine or "ghidra",
+                "decompiler": decompiler,
+                "analysis_engine": decompiler,
                 "total_targets_scanned": total_targets,
                 "total_findings": total_findings,
                 "by_severity": summary_by_severity,

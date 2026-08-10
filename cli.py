@@ -67,12 +67,11 @@ def print_execution_metadata(summary: Dict[str, Any]):
     metadata = summary.get("metadata", {})
     cfg_content = metadata.get("config_content", {})
     exec_info = metadata.get("execution", {})
-    sum_data = summary.get("summary", {})
 
     target_path = cfg_content.get("target_path", "N/A")
     output_path = cfg_content.get("output_json_path", "N/A")
-    output_engine_path = cfg_content.get("output_engine_path") or cfg_content.get("output_ghidra_path") or "N/A"
-    engine_name = (cfg_content.get("engine") or "ghidra").upper()
+    output_decompiler_path = cfg_content.get("output_decompiler_path", "N/A")
+    decompiler_name = (cfg_content.get("decompiler") or "ghidra").upper()
     decompiler_path = cfg_content.get("decompiler_path") or "Default System Path"
     config_file = metadata.get("config_file", "N/A")
 
@@ -82,7 +81,7 @@ def print_execution_metadata(summary: Dict[str, Any]):
     timestamp = exec_info.get("timestamp")
     active_analyzers = exec_info.get("active_analyzers", [])
 
-    engine_badge = f"{COLOR_CYAN}{COLOR_BOLD}[{engine_name}]{COLOR_RESET}"
+    decompiler_badge = f"{COLOR_CYAN}{COLOR_BOLD}[{decompiler_name}]{COLOR_RESET}"
 
     print(f"\n{COLOR_CYAN}{COLOR_BOLD}----------------------------------------------------------------------{COLOR_RESET}")
     print(f"{COLOR_CYAN}{COLOR_BOLD} EXECUTION METADATA & CONFIGURATION{COLOR_RESET}")
@@ -90,9 +89,9 @@ def print_execution_metadata(summary: Dict[str, Any]):
     print(f"  * Mode:                    {COLOR_BOLD}{mode}{COLOR_RESET}")
     print(f"  * Target File:             {target_path}")
     print(f"  * Output Report Path:      {output_path}")
-    print(f"  * Output Engine Path:      {output_engine_path}")
+    print(f"  * Output Decompiler Path:  {output_decompiler_path}")
     print(f"  * Config File:             {config_file}")
-    print(f"  * Decompiler Engine:       {engine_badge}")
+    print(f"  * Decompiler Engine:       {decompiler_badge}")
     if decompiler_path and decompiler_path != "Default System Path":
         print(f"  * Decompiler Binary:       {decompiler_path}")
     if duration > 0:
@@ -160,7 +159,8 @@ def main():
     parser.add_argument("-c", "--config", default="config/cli_config.yaml", help="Path to CLI config YAML file")
     parser.add_argument("-t", "--target", help="Path to target file (.so or .apk)")
     parser.add_argument("-o", "--output", help="Path to output JSON report file")
-    parser.add_argument("-e", "-g", "--engine-output", "--ghidra-output", dest="engine_output", help="Directory path for storing raw engine project database, artifacts, logs, and outputs (Ghidra or Radare2)")
+    parser.add_argument("-d", "--decompiler", help="Selected decompiler choice ('ghidra' or 'radare2')")
+    parser.add_argument("-e", "--output-decompiler", "--decompiler-output", dest="output_decompiler_path", help="Directory path for storing raw decompiler project database, artifacts, logs, and outputs")
     args = parser.parse_args()
 
     # Step 1: Read configuration options directly from file and CLI flag overrides
@@ -179,27 +179,23 @@ def main():
             raise FileNotFoundError(f"Target binary '{raw_target}' not found.")
 
         output_path = args.output if args.output else cli_config.get("output_json_path", "./output/report.json")
-        output_engine_path = args.engine_output if args.engine_output else cli_config.get("output_engine_path", cli_config.get("output_ghidra_path"))
-        if output_engine_path:
-            output_engine_path = os.path.abspath(output_engine_path)
-            os.makedirs(output_engine_path, exist_ok=True)
+        output_decompiler_path = args.output_decompiler_path if args.output_decompiler_path else cli_config.get("output_decompiler_path")
+        if output_decompiler_path:
+            output_decompiler_path = os.path.abspath(output_decompiler_path)
+            os.makedirs(output_decompiler_path, exist_ok=True)
 
-        engine_type = cli_config.get("engine", "ghidra")
+        decompiler = args.decompiler if args.decompiler else cli_config.get("decompiler", "ghidra")
         decompiler_path = cli_config.get("decompiler_path")
 
-        # Step 2: Initialize core/engine.py and pass loaded configuration parameters
-        from native_analysis.core.engine import ScanEngine
+        # Step 2: Call core/engine.py start entrypoint with loaded parameters
+        from native_analysis.core.engine import start
 
-        engine = ScanEngine(
-            decompiler_path=decompiler_path,
-            engine=engine_type,
-            output_engine_path=output_engine_path
-        )
-
-        # Step 3: Trigger core engine execution process
-        summary = engine.execute(
+        summary = start(
             target_path=target_path,
-            output_path=output_path,
+            decompiler=decompiler,
+            decompiler_path=decompiler_path,
+            output_decompiler_path=output_decompiler_path,
+            output_json_path=output_path,
             config_file_used=config_used
         )
 

@@ -210,21 +210,16 @@ class ConfigLoader:
                 if "target_so_path" in res and "target_path" not in res:
                     res["target_path"] = res["target_so_path"]
 
-                if "engine" not in res:
-                    res["engine"] = "ghidra"
+                if "decompiler" not in res:
+                    res["decompiler"] = "ghidra"
 
                 if res.get("target_path"):
                     res["target_path"] = ConfigLoader.resolve_target_path(res["target_path"])
 
-                if res.get("output_engine_path"):
-                    e_path = os.path.abspath(res["output_engine_path"])
-                    os.makedirs(e_path, exist_ok=True)
-                    res["output_engine_path"] = e_path
-                elif res.get("output_ghidra_path"):
-                    # Support backwards-compatibility key fallback
-                    e_path = os.path.abspath(res["output_ghidra_path"])
-                    os.makedirs(e_path, exist_ok=True)
-                    res["output_engine_path"] = e_path
+                if res.get("output_decompiler_path"):
+                    d_path = os.path.abspath(res["output_decompiler_path"])
+                    os.makedirs(d_path, exist_ok=True)
+                    res["output_decompiler_path"] = d_path
 
                 res["_config_file_used"] = target_config_file
                 return res
@@ -233,8 +228,8 @@ class ConfigLoader:
         return {
             "target_path": None,
             "output_json_path": "./output/report.json",
-            "output_engine_path": "./output/engine_artifacts",
-            "engine": "ghidra",
+            "output_decompiler_path": "./output/engine_artifacts",
+            "decompiler": "ghidra",
             "decompiler_path": None,
             "_config_file_used": None
         }

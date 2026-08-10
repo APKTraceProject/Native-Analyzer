@@ -1,6 +1,6 @@
 # APKTrace - Native Analysis CLI Configuration Template
-target_path: "./tests/app.apk" # Accepts .so (Single Mode) or .apk (Multi Mode)
+target_path: "./tests/app.apk"                      # Accepts .so (Single Mode) or .apk (Multi Mode)
 output_json_path: "./output/report.json"
-output_engine_path: "./output/engine_artifacts" # Directory path for raw engine project database, artifacts, logs, and outputs (Ghidra or Radare2)
-engine: "ghidra" # Selected engine: "ghidra" or "radare2"
-decompiler_path: "C:\\Ghidra\\support\\analyzeHeadless.bat" # Path to Ghidra analyzeHeadless executable or radare2 binary depending on engine
+output_decompiler_path: "./output/engine_artifacts"  # Directory for raw decompiler project database, artifacts, logs, and outputs
+decompiler: "ghidra"                                # Selected decompiler: "ghidra" or "radare2"
+decompiler_path: "C:\\Ghidra\\support\\analyzeHeadless.bat" # Path to Ghidra analyzeHeadless executable or radare2 binary

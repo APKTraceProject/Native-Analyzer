@@ -68,35 +68,40 @@ class ScanEngine:
 
     def __init__(
         self,
+        target_path: Optional[str] = None,
+        decompiler: str = "ghidra",
         decompiler_path: Optional[str] = None,
-        engine: str = "ghidra",
-        output_engine_path: Optional[str] = None,
-        output_ghidra_path: Optional[str] = None
+        output_decompiler_path: Optional[str] = "./output/engine_artifacts",
+        output_json_path: Optional[str] = "./output/report.json",
+        **kwargs
     ):
         """
-        Initializes engine, statically loads rules.yaml signatures internally, and configures binary decompiler/parser.
+        Initializes ScanEngine, statically loads rules.yaml signatures internally, and configures binary decompiler/parser.
         
-        @param decompiler_path Optional path to decompiler executable (Ghidra analyzeHeadless or radare2 binary).
-        @param engine Decompiler engine choice ("ghidra" or "radare2").
-        @param output_engine_path Optional directory path to store persistent engine project data, artifacts, and logs.
-        @param output_ghidra_path Legacy alias for output_engine_path.
+        @param target_path Path to target file (.so or .apk).
+        @param decompiler Selected decompiler choice ("ghidra" or "radare2").
+        @param decompiler_path Optional path to decompiler executable.
+        @param output_decompiler_path Directory path to store persistent decompiler project data, artifacts, and logs.
+        @param output_json_path Default report output destination file path.
         """
         self.rules = ConfigLoader.load_rules()
         self.rules_by_id: Dict[str, Rule] = {r.id: r for r in self.rules}
         
+        self.target_path = target_path
+        self.decompiler = (decompiler or "ghidra").lower()
         self.decompiler_path = decompiler_path
-        self.output_engine_path = output_engine_path or output_ghidra_path
-        self.engine_name = engine.lower()
+        self.output_decompiler_path = output_decompiler_path
+        self.output_json_path = output_json_path
 
-        if self.engine_name == "radare2":
+        if self.decompiler == "radare2":
             self.parser = Radare2Parser(
-                decompiler_path=decompiler_path,
-                output_engine_path=self.output_engine_path
+                decompiler_path=self.decompiler_path,
+                output_decompiler_path=self.output_decompiler_path
             )
         else:
             self.parser = GhidraParser(
-                decompiler_path=decompiler_path,
-                output_engine_path=self.output_engine_path
+                decompiler_path=self.decompiler_path,
+                output_decompiler_path=self.output_decompiler_path
             )
 
     def build_rule_category_map(self) -> Dict[str, str]:
@@ -156,7 +161,7 @@ class ScanEngine:
     def execute(
         self,
         target_path: str,
-        output_path: str = "./output/report.json",
+        output_path: Optional[str] = None,
         config_file_used: Optional[str] = None
     ) -> Dict[str, Any]:
         """
@@ -183,6 +188,7 @@ class ScanEngine:
         @param config_file_used Optional path string of loaded YAML configuration file.
         @return Dict[str, Any] Complete execution summary payload for CLI or caller consumption.
         """
+        output_path = output_path or self.output_json_path or "./output/report.json"
         start_time = time.time()
         timestamp_str = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         progress_logs: List[Tuple[str, str, str, str]] = []
@@ -233,8 +239,8 @@ class ScanEngine:
                 else:
                     progress_logs.append(("+", "COLOR_GREEN", "INFO", f"Found {total_found} binaries across ABIs -> Deduplicated to {binary_count} primary targets"))
 
-            engine_label = "Radare2" if self.engine_name == "radare2" else "Ghidra"
-            progress_logs.append(("*", "COLOR_CYAN", "SCAN", f"Decompiling & analyzing symbols via {engine_label}..."))
+            decompiler_label = "Radare2" if self.decompiler == "radare2" else "Ghidra"
+            progress_logs.append(("*", "COLOR_CYAN", "SCAN", f"Decompiling & analyzing symbols via {decompiler_label}..."))
             progress_logs.append(("*", "COLOR_YELLOW", "TAINT", "Running variable flow analysis & JNI context extraction..."))
 
             # Step 1: Run security scan engine across targets
@@ -244,7 +250,7 @@ class ScanEngine:
             report_payload = JSONReporter.generate_report(
                 scanned_targets=scanned_targets,
                 output_file_path=output_path,
-                analysis_engine=self.engine_name
+                decompiler=self.decompiler
             )
             progress_logs.append(("✔", "COLOR_GREEN", "SUCCESS", f"Report generated successfully at {output_path}"))
 
@@ -296,8 +302,8 @@ class ScanEngine:
                 "config_content": {
                     "target_path": resolved_target_path,
                     "output_json_path": output_path,
-                    "output_engine_path": self.output_engine_path,
-                    "engine": self.engine_name,
+                    "output_decompiler_path": self.output_decompiler_path,
+                    "decompiler": self.decompiler,
                     "decompiler_path": self.decompiler_path
                 },
                 "execution": {
@@ -336,8 +342,8 @@ class ScanEngine:
                 "config_content": {
                     "target_path": target_path,
                     "output_json_path": output_path,
-                    "output_engine_path": self.output_engine_path,
-                    "engine": self.engine_name,
+                    "output_decompiler_path": self.output_decompiler_path,
+                    "decompiler": self.decompiler,
                     "decompiler_path": self.decompiler_path
                 },
                 "execution": {
@@ -741,13 +747,50 @@ class ScanEngine:
 
     def run(
         self,
-        target_so_path: str,
-        apk_relative_path: Optional[str] = None
-    ) -> Tuple[ParsedBinary, List[Finding]]:
+        target_so_path: Optional[str] = None,
+        apk_relative_path: Optional[str] = None,
+        **kwargs
+    ) -> Any:
         """
-        Runs full analysis pipeline by building AnalysisContext and dispatching analyzers.
+        Executes scan workflow via internal submodules.
+        If target_so_path is specified, runs single binary scan_target.
+        Otherwise executes complete engine workflow using self.target_path and returns payload dict.
         """
-        return self.scan_target(target_so_path, apk_relative_path=apk_relative_path)
+        if target_so_path:
+            return self.scan_target(target_so_path, apk_relative_path=apk_relative_path)
+        
+        target = self.target_path
+        if not target:
+            raise ValueError("No target path provided to ScanEngine.")
+        return self.execute(
+            target_path=target,
+            output_path=self.output_json_path,
+            config_file_used=kwargs.get("config_file_used")
+        )
+
+
+def start(
+    target_path: str,
+    decompiler: str = "ghidra",
+    decompiler_path: Optional[str] = None,
+    output_decompiler_path: Optional[str] = "./output/engine_artifacts",
+    output_json_path: Optional[str] = "./output/report.json",
+    **kwargs
+) -> Dict[str, Any]:
+    """
+    Executes scan workflow via internal submodules (parsers, analyzers, models).
+    Loads NO configs and prints NO CLI views. Returns the final payload dict.
+    """
+    scanner = ScanEngine(
+        target_path=target_path,
+        decompiler=decompiler,
+        decompiler_path=decompiler_path,
+        output_decompiler_path=output_decompiler_path,
+        output_json_path=output_json_path,
+        **kwargs
+    )
+    
+    return scanner.run(**kwargs)
 
 
 Engine = ScanEngine
