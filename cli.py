@@ -233,7 +233,7 @@ def main():
 
         output_path = args.output if args.output else cli_config.get("output_json_path", "./output/report.json")
         engine_type = cli_config.get("engine", "ghidra")
-        decompiler_path = cli_config.get("decompiler_path") or cli_config.get("ghidra_headless_path")
+        decompiler_path = cli_config.get("decompiler_path")
 
         # Verify target file extension
         ext = os.path.splitext(target_path)[1].lower()

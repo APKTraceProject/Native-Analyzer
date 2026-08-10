@@ -26,13 +26,13 @@ class GhidraParser(BaseParser):
        reconstructing ARM64 pseudo-C AST representations with mapped virtual memory offsets (0x2b00 + idx*0x40).
     """
 
-    def __init__(self, ghidra_headless_path: str = None):
+    def __init__(self, decompiler_path: Optional[str] = None):
         """
         Initializes Ghidra parser instance.
         
-        @param ghidra_headless_path Filesystem path to Ghidra analyzeHeadless executable/bat.
+        @param decompiler_path Filesystem path to Ghidra analyzeHeadless executable/bat.
         """
-        self.ghidra_headless_path = ghidra_headless_path
+        self.decompiler_path = decompiler_path
 
     def _compute_sha256(self, file_path: str) -> str:
         """
@@ -125,7 +125,7 @@ class GhidraParser(BaseParser):
         mitigations = self._detect_mitigations(file_bytes)
 
         # Attempt Ghidra Headless if configured and exists
-        if self.ghidra_headless_path and os.path.exists(self.ghidra_headless_path):
+        if self.decompiler_path and os.path.exists(self.decompiler_path):
             try:
                 parsed_data = self._run_ghidra_headless(target_so_path)
                 if parsed_data:
@@ -221,9 +221,9 @@ run_export()
             with open(script_path, "w") as f:
                 f.write(jython_script)
 
-            head_dir = os.path.dirname(self.ghidra_headless_path)
+            head_dir = os.path.dirname(self.decompiler_path)
             cmd = [
-                self.ghidra_headless_path,
+                self.decompiler_path,
                 project_location,
                 "APKTraceProject",
                 "-import", target_so_path,

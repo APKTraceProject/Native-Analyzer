@@ -210,9 +210,6 @@ class ConfigLoader:
                 if "target_so_path" in res and "target_path" not in res:
                     res["target_path"] = res["target_so_path"]
 
-                if "ghidra_headless_path" in res and "decompiler_path" not in res:
-                    res["decompiler_path"] = res["ghidra_headless_path"]
-
                 if "engine" not in res:
                     res["engine"] = "ghidra"
 
@@ -228,7 +225,6 @@ class ConfigLoader:
             "output_json_path": "./output/report.json",
             "engine": "ghidra",
             "decompiler_path": None,
-            "ghidra_headless_path": None,
             "_config_file_used": None
         }
 

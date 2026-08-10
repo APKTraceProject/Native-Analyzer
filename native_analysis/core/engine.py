@@ -67,8 +67,7 @@ class ScanEngine:
         self,
         rules_path: str = "config/rules.yaml",
         decompiler_path: Optional[str] = None,
-        engine: str = "ghidra",
-        ghidra_headless_path: Optional[str] = None
+        engine: str = "ghidra"
     ):
         """
         Initializes engine, loads YAML rule signatures, and configures binary decompiler/parser.
@@ -76,18 +75,17 @@ class ScanEngine:
         @param rules_path Path to rules.yaml config file.
         @param decompiler_path Optional path to decompiler executable (Ghidra analyzeHeadless or radare2 binary).
         @param engine Decompiler engine choice ("ghidra" or "radare2").
-        @param ghidra_headless_path Backward compatibility alias for decompiler_path.
         """
         self.rules = ConfigLoader.load_rules(rules_path)
         self.rules_by_id: Dict[str, Rule] = {r.id: r for r in self.rules}
         
-        resolved_decompiler_path = decompiler_path or ghidra_headless_path
-        self.engine_name = (engine or "ghidra").lower()
+        self.decompiler_path = decompiler_path
+        self.engine_name = engine.lower()
 
         if self.engine_name == "radare2":
-            self.parser = Radare2Parser(decompiler_path=resolved_decompiler_path)
+            self.parser = Radare2Parser(decompiler_path=decompiler_path)
         else:
-            self.parser = GhidraParser(ghidra_headless_path=resolved_decompiler_path)
+            self.parser = GhidraParser(decompiler_path=decompiler_path)
 
     @staticmethod
     def format_exception(e: Exception) -> str:
